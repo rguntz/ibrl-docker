@@ -31,7 +31,8 @@ cmake ..
 make -j
 ```
 
-##  Create an API key on https://docs.wandb.ai/models/quickstart 
+##  Create an API key for progress monitoring
+Visit the site https://docs.wandb.ai/models/quickstart and create an account, and then an API key to monitor online the training pipeline. 
 ```bash
 export WANDB_API_KEY="837e47625b8acbd29a5dbc4cc5e0dcc30fca5f73"
 ```
