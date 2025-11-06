@@ -17,6 +17,11 @@ The release folder should contain `release/cfgs` (already shipped with the repo)
 Build the image :
 docker run -it --gpus all ibrl-gpu bash
 
+## Running the Container
+docker run --gpus all -it --rm \
+    -v $(pwd):/app \
+    ibrl-gpu
+
 Compile the CPP files : 
 ```bash
 cd common_utils
@@ -25,3 +30,13 @@ cd build
 cmake ..
 make -j
 ```
+
+##  Create an API key on https://docs.wandb.ai/models/quickstart 
+```bash
+export WANDB_API_KEY="837e47625b8acbd29a5dbc4cc5e0dcc30fca5f73"
+```
+
+
+
+
+
