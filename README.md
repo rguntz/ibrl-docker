@@ -17,10 +17,12 @@ The release folder should contain `release/cfgs` (already shipped with the repo)
 Build the image :
 docker run -it --gpus all ibrl-gpu bash
 
-## Running the Container
+## Running the Container 
+```bash
 docker run --gpus all -it --rm \
     -v $(pwd):/app \
     ibrl-gpu
+```
 
 Compile the CPP files : 
 ```bash
