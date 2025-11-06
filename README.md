@@ -13,3 +13,15 @@ Download data and BC models
 Download dataset and models from [Google Drive](https://drive.google.com/file/d/1F2yH84Iqv0qRPmfH8o-kSzgtfaoqMzWE/view?usp=sharing) and put the folders under `release` folder.
 The release folder should contain `release/cfgs` (already shipped with the repo), `release/data` and `release/model` (the latter two are from the downloaded zip file).
 
+
+Build the image :
+docker run -it --gpus all ibrl-gpu bash
+
+Compile the CPP files : 
+```bash
+cd common_utils
+mkdir build
+cd build
+cmake ..
+make -j
+```
