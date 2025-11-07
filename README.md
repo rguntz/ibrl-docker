@@ -19,7 +19,10 @@ unzip data_and_model.zip
 ```
 
 Build the image :
+```bash
+
 docker build -t ibrl-gpu .
+```
 
 ## Running the Container 
 ```bash
