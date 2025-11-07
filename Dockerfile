@@ -42,6 +42,8 @@ RUN pip install --upgrade pip && \
     pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128 && \
     pip install -r requirements.txt
 
+# Fix Git "dubious ownership" issue for mounted /app directory
+RUN git config --global --add safe.directory /app
 
 # Default command
 CMD ["bash"]
