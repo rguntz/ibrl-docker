@@ -68,10 +68,10 @@ class MainConfig(common_utils.RunConfig):
     save_dir: str = "exps/rl/run1"
     use_wb: int = 0
 
-    def __post_init__(self):
+    def __post_init__(self): # gets automatically called when initializing the class. 
         self.rl_cameras = self.rl_camera.split("+")
 
-        if self.bc_policy in ["none", "None"]:
+        if self.bc_policy in ["none", "None"]: #  self.bc_policy is directly initilized from the definition of the class. 
             self.bc_policy = ""
 
         if self.bc_policy:
@@ -88,14 +88,15 @@ class MainConfig(common_utils.RunConfig):
 
         if self.task_name == "TwoArmTransport":
             self.robots: list[str] = ["Panda", "Panda"]
-        else:
-            self.robots: list[str] = ["Panda"]
+        else: # only one robot. 
+            self.robots: list[str] = ["Panda"] # initialize the name of the robot. 
 
     @property
     def bc_cameras(self) -> list[str]:
-        if not self.bc_policy:
+        if not self.bc_policy: 
             return []
-
+        
+        # we are doing this below : 
         bc_cfg_path = os.path.join(os.path.dirname(self.bc_policy), f"cfg.yaml")
         bc_cfg = pyrallis.load(train_bc.MainConfig, open(bc_cfg_path, "r"))  # type: ignore
         return bc_cfg.dataset.rl_cameras
@@ -128,9 +129,9 @@ class Workspace:
         self.train_step = 0
         self._setup_env()
 
-        print(self.train_env.observation_shape)
-        self.agent = QAgent(
-            self.cfg.use_state,
+        print("train_env.observation_shape", self.train_env.observation_shape, "use state : ", self.cfg.use_state) # (3, 96, 96) I guess its for 96 pixels by 96 pixels and 3 for the rgb. 
+        self.agent = QAgent( # init the agent. 
+            self.cfg.use_state, # in our case its 0 => false. 
             self.train_env.observation_shape,
             self.train_env.prop_shape,
             self.train_env.action_dim,
@@ -141,7 +142,7 @@ class Workspace:
         if not from_main:
             return
 
-        if cfg.load_pretrained_agent and cfg.load_pretrained_agent != "None":
+        if cfg.load_pretrained_agent and cfg.load_pretrained_agent != "None": #  if we have specified a pre-trained agent. 
             print(f"loading loading pretrained agent from {cfg.load_pretrained_agent}")
             critic_states = copy.deepcopy(self.agent.critic.state_dict())
             self.agent.load_state_dict(torch.load(cfg.load_pretrained_agent))
@@ -157,7 +158,7 @@ class Workspace:
         # set up bc related stuff
         self.bc_policy: Optional[torch.nn.Module] = None
         if cfg.bc_policy:
-            bc_policy, _, bc_env_params = train_bc.load_model(cfg.bc_policy, "cuda")
+            bc_policy, _, bc_env_params = train_bc.load_model(cfg.bc_policy, "cuda") # load the imitation learning policy. 
             assert bc_env_params["obs_stack"] == self.eval_env_params["obs_stack"]
 
             self.agent.add_bc_policy(copy.deepcopy(bc_policy))
@@ -166,21 +167,23 @@ class Workspace:
         self._setup_replay()
 
     def _setup_env(self):
-        self.rl_cameras: list[str] = list(set(self.cfg.rl_cameras + self.cfg.bc_cameras))
-        if self.cfg.use_state:
+        self.rl_cameras: list[str] = list(set(self.cfg.rl_cameras + self.cfg.bc_cameras)) # the bc camera is the same as the rl camera. 
+        #  If RL and BC cameras are the same, then this just returns that single list.
+        if self.cfg.use_state: # not our case 
             self.rl_cameras = []
         print(f"rl_cameras: {self.rl_cameras}")
 
-        if self.cfg.save_per_success > 0:
+        if self.cfg.save_per_success > 0: # not entering this at the begining. 
             for cam in ["agentview", "robot0_eye_in_hand"]:
                 if cam not in self.rl_cameras:
                     print(f"Adding {cam} to recording camera because {self.cfg.save_per_success=}")
                     self.rl_cameras.append(cam)
 
-        self.obs_stack = self.cfg.obs_stack
-        self.prop_stack = self.cfg.prop_stack
+        self.obs_stack = self.cfg.obs_stack # default value is obs_stack
+        self.prop_stack = self.cfg.prop_stack # number of proprioceptive inputs (robot joint states, gripper info) to stack.
+        # initialize at 1. 
 
-        self.train_env = PixelRobosuite(
+        self.train_env = PixelRobosuite( # Create the training environment
             env_name=self.cfg.task_name,
             robots=self.cfg.robots,
             episode_length=self.cfg.episode_length,
@@ -211,15 +214,15 @@ class Workspace:
             state_stack=self.cfg.state_stack,
             prop_stack=self.prop_stack,
         )
-        self.eval_env = PixelRobosuite(**self.eval_env_params)  # type: ignore
+        self.eval_env = PixelRobosuite(**self.eval_env_params)  # same as the training environment but this one evaluates the env. 
 
-    def _setup_replay(self):
+    def _setup_replay(self): 
         use_bc = False
-        if self.cfg.mix_rl_rate < 1:
+        if self.cfg.mix_rl_rate < 1: # If mix_rl_rate < 1: you're mixing RL data with some BC data.
+            use_bc = True 
+        if self.cfg.save_per_success > 0: # If save_per_success > 0: you plan to save successful episodes (often for imitation), so BC is needed.
             use_bc = True
-        if self.cfg.save_per_success > 0:
-            use_bc = True
-        if self.cfg.pretrain_num_epoch > 0 or self.cfg.add_bc_loss:
+        if self.cfg.pretrain_num_epoch > 0 or self.cfg.add_bc_loss: # If you’re doing pretraining (pretrain_num_epoch > 0) or adding a BC loss (add_bc_loss), then you must load BC demo data 
             assert self.cfg.preload_num_data
             use_bc = True
 
@@ -234,9 +237,11 @@ class Workspace:
             save_dir=self.cfg.save_dir,
         )
 
-        if self.cfg.preload_num_data:
+        if self.cfg.preload_num_data: # Optionally load expert demonstration data
+            #  it is initialize to 10 so 10 demos. 
+            print("setting up the replay buffer : ")
             replay.add_demos_to_replay(
-                self.replay,
+                self.replay, # use the instance of the replay buffer just create above. 
                 self.cfg.preload_datapath,
                 num_data=self.cfg.preload_num_data,
                 rl_cameras=self.rl_cameras,
@@ -284,19 +289,20 @@ class Workspace:
         total_reward = 0
         num_episode = 0
         while True:
-            if self.bc_policy is not None:
+            if self.bc_policy is not None: # if we have a bc policy then we use it to fill the replay buffer. 
                 # we have a BC policy
                 with torch.no_grad(), utils.eval_mode(self.bc_policy):
                     action = self.bc_policy.act(obs, eval_mode=True)
-            elif self.cfg.load_pretrained_agent or self.cfg.pretrain_num_epoch > 0:
+            elif self.cfg.load_pretrained_agent or self.cfg.pretrain_num_epoch > 0: # if we jave a pre-trained RL agent. 
                 # the policy has been pretrained/initialized
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(obs, eval_mode=True)
-            else:
+            else: # random actions. 
                 action = torch.zeros(self.train_env.action_dim)
                 action = action.uniform_(-1.0, 1.0)
 
             obs, reward, terminal, success, image_obs = self.train_env.step(action)
+            self.train_env.env.render()
             reply = {"action": action}
             self.replay.add(obs, reply, reward, terminal, success, image_obs)
 
@@ -325,29 +331,34 @@ class Workspace:
         saver = common_utils.TopkSaver(save_dir=self.work_dir, topk=1)
 
         if self.replay.num_episode < self.cfg.num_warm_up_episode:
-            self.warm_up()
+            print("doing the warmup")
+            self.warm_up() # fill the replay buffer with demo data or the behavior cloning policy
+            print("finished the warmup")
+
 
         stopwatch = common_utils.Stopwatch()
-        obs, _ = self.train_env.reset()
+        obs, _ = self.train_env.reset() # reset the env 
         self.replay.new_episode(obs)
-        while self.global_step < self.cfg.num_train_step:
+        while self.global_step < self.cfg.num_train_step: # run until we attain max steps. 
             ### act ###
             with stopwatch.time("act"), torch.no_grad(), utils.eval_mode(self.agent):
-                stddev = utils.schedule(self.cfg.stddev_schedule, self.global_step)
+                stddev = utils.schedule(self.cfg.stddev_schedule, self.global_step) # this is noise added to the observation. 
                 action = self.agent.act(obs, eval_mode=False, stddev=stddev)
                 stat["data/stddev"].append(stddev)
 
             ### env.step ###
-            with stopwatch.time("env step"):
+            with stopwatch.time("env step"): # Send the action to the simulator.
                 obs, reward, terminal, success, image_obs = self.train_env.step(action)
+                self.train_env.env.render()
+                
 
-            with stopwatch.time("add"):
+            with stopwatch.time("add"): # Save the transition into the replay buffer.
                 assert isinstance(terminal, bool)
                 reply = {"action": action}
                 self.replay.add(obs, reply, reward, terminal, success, image_obs)
                 self.global_step += 1
 
-            if terminal:
+            if terminal: # if the episode has ended. 
                 with stopwatch.time("reset"):
                     self.global_episode += 1
                     stat["score/train_score"].append(float(success))
@@ -361,7 +372,7 @@ class Workspace:
             if self.global_step % self.cfg.log_per_step == 0:
                 self.log_and_save(stopwatch, stat, saver)
 
-            ### train ###
+            ### train ### => update the agent every 2 steps for example. 
             if self.global_step % self.cfg.update_freq == 0:
                 with stopwatch.time("train"):
                     self.rl_train(stat)
@@ -412,10 +423,10 @@ class Workspace:
         print("total time:", common_utils.sec2str(stopwatch.total_time))
         print(common_utils.get_mem_usage())
 
-    def rl_train(self, stat: common_utils.MultiCounter):
+    def rl_train(self, stat: common_utils.MultiCounter): # the actual learner. 
         stddev = utils.schedule(self.cfg.stddev_schedule, self.global_step)
-        for i in range(self.cfg.num_critic_update):
-            if self.cfg.mix_rl_rate < 1:
+        for i in range(self.cfg.num_critic_update): # update the critic multiple times per actor update. 
+            if self.cfg.mix_rl_rate < 1: # if we mix RL and BC data. 
                 rl_bsize = int(self.cfg.batch_size * self.cfg.mix_rl_rate)
                 bc_bsize = self.cfg.batch_size - rl_bsize
                 batch = self.replay.sample_rl_bc(rl_bsize, bc_bsize, "cuda:0")
@@ -434,7 +445,7 @@ class Workspace:
             stat.append(metrics)
             stat["data/discount"].append(batch.bootstrap.mean().item())
 
-    def pretrain_policy(self):
+    def pretrain_policy(self): # pre-train the behavioral cloning. 
         stat = common_utils.MultiCounter(
             self.work_dir,
             bool(self.cfg.use_wb),
@@ -489,8 +500,8 @@ def load_model(weight_file, device):
 
 
 def main():
-    cfg = pyrallis.parse(config_class=MainConfig)  # type: ignore
-    workspace = Workspace(cfg)
+    cfg = pyrallis.parse(config_class=MainConfig)  # this will read the file "can_ibrl.yaml" which has the variables used for the simulation (model path and so on)
+    workspace = Workspace(cfg) 
     if cfg.pretrain_num_epoch > 0:
         print("Pretraining")
         workspace.pretrain_policy()
@@ -498,6 +509,7 @@ def main():
             print("RL finetuning")
             workspace.train()
     else:
+        print("no pretraining") # => we are in this case. 
         workspace.train()
 
     if cfg.use_wb:
@@ -508,10 +520,10 @@ def main():
 
 if __name__ == "__main__":
     import wandb
-    from rich.traceback import install
+    from rich.traceback import install 
 
     install()
     os.environ["MUJOCO_GL"] = "egl"
-    torch.backends.cudnn.allow_tf32 = True  # type: ignore
+    torch.backends.cudnn.allow_tf32 = True  # type: ignore  
     torch.backends.cudnn.benchmark = True  # type: ignore
     main()

@@ -24,8 +24,8 @@ class QAgentConfig:
     stddev_clip: float = 0.3
     # encoder
     use_prop: int = 0
-    enc_type: str = "vit"
-    vit: VitEncoderConfig = field(default_factory=lambda: VitEncoderConfig())
+    enc_type: str = "vit" # this is the basic config. 
+    vit: VitEncoderConfig = field(default_factory=lambda: VitEncoderConfig()) #  the field allows to create multiple QAgentConfig classes without sharing them the same encoders 
     resnet: ResNetEncoderConfig = field(default_factory=lambda: ResNetEncoderConfig())
     resnet96: ResNet96EncoderConfig = field(default_factory=lambda: ResNet96EncoderConfig())
     # critic & actor
@@ -50,28 +50,28 @@ class QAgentConfig:
 
 class QAgent(nn.Module):
     def __init__(
-        self, use_state, obs_shape, prop_shape, action_dim, rl_camera: str, cfg: QAgentConfig
+        self, use_state, obs_shape, prop_shape, action_dim, rl_camera: str, cfg: QAgentConfig # inherit from the config above : QAgentConfig
     ):
         super().__init__()
-        self.use_state = use_state
+        self.use_state = use_state # use the state information. 
         self.rl_camera = rl_camera
         self.cfg = cfg
 
-        if use_state:
+        if use_state: # false in our case so we dont enter here. 
             self.critic = MultiFcQ(obs_shape, action_dim, cfg.state_critic)
             self.actor = FcActor(obs_shape, action_dim, cfg.state_actor)
-        else:
-            self.encoder = self._build_encoders(obs_shape)
+        else: # this is our case. 
+            self.encoder = self._build_encoders(obs_shape) # passed from the train_rl.py
             repr_dim = self.encoder.repr_dim
             patch_repr_dim = self.encoder.patch_repr_dim
             print("encoder output dim: ", repr_dim)
-            print("patch output dim: ", patch_repr_dim)
+            print("patch output dim: ", patch_repr_dim) # for ViT => this is the patch size used. 
 
             assert len(prop_shape) == 1
             prop_dim = prop_shape[0] if cfg.use_prop else 0
 
             # create critics & actor
-            self.critic = Critic(
+            self.critic = Critic( 
                 repr_dim=repr_dim,
                 patch_repr_dim=patch_repr_dim,
                 prop_dim=prop_dim,

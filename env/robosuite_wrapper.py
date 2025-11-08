@@ -22,8 +22,8 @@ DEFAULT_CAMERA = "agentview"
 
 
 DEFAULT_STATE_KEYS = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos", "object"]
-STATE_KEYS = {
-    "Lift": DEFAULT_STATE_KEYS,
+STATE_KEYS = { # for the different tasks. 
+    "Lift": DEFAULT_STATE_KEYS, 
     "PickPlaceCan": DEFAULT_STATE_KEYS,
     "NutAssemblySquare": DEFAULT_STATE_KEYS,
     "TwoArmTransport": [
@@ -49,15 +49,15 @@ STATE_KEYS = {
         # "robot0_joint_vel",  # (389, 7)
     ],
 }
-STATE_SHAPE = {
+STATE_SHAPE = { # how many numbers are in the flattened state vector for each task.
     "Lift": (19,),
     "PickPlaceCan": (23,),
     "NutAssemblySquare": (23,),
     "TwoArmTransport": (59,),
     "ToolHang": (53,),
 }
-PROP_KEYS = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
-PROP_DIM = 9
+PROP_KEYS = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"] # proprio sensors only => not the object. 
+PROP_DIM = 9 # gripper has (2)  
 
 
 class PixelRobosuite:
@@ -86,14 +86,16 @@ class PixelRobosuite:
     ):
         assert isinstance(camera_names, list)
         self.camera_names = camera_names
-        self.ctrl_config = load_controller_config(default_controller="OSC_POSE")
+        self.ctrl_config = load_controller_config(default_controller="OSC_POSE") # "OSC_POSE" = Operational Space Control for position + orientation
         self.ctrl_config["control_delta"] = ctrl_delta
         self.record_sim_state = record_sim_state
-        self.env = robosuite.make(
-            env_name=env_name,
-            robots=robots,
-            controller_configs=self.ctrl_config,
-            has_offscreen_renderer=True,
+        self.env = robosuite.make( # complete simulated robot manipulation environment
+            env_name=env_name, # equal to PickPlaceCan for example
+            robots=robots, # in our case its Pandas  
+            controller_configs=self.ctrl_config, #  given 5 lines above 
+            has_offscreen_renderer=True, # controls whether the simulation environment creates images (renderings) without showing a window on your screen.
+            has_renderer=True, # newly add to have rendering option. 
+            # Needed if we want pixel input of the model. 
             use_camera_obs=True,
             reward_shaping=reward_shaping,
             camera_names=self.camera_names,
@@ -131,10 +133,11 @@ class PixelRobosuite:
         self.prop_stack = prop_stack
         self.cond_action = cond_action
         self.past_obses = defaultdict(list)
-        self.past_actions = deque(maxlen=self.cond_action)
+        self.past_actions = deque(maxlen=self.cond_action) # deque is a list that automatically forgets old items when it gets too full.
+
 
     @property
-    def observation_shape(self):
+    def observation_shape(self): #  get the shape of the observation : pixel or state
         if self.use_state:
             return self._state_shape
         else:
@@ -146,7 +149,7 @@ class PixelRobosuite:
         high_res_images = {}
         rl_obs = {}
 
-        if self.use_state:
+        if self.use_state: #  not our case we dont enter this if section. 
             states = []
             for key in self.state_keys:
                 if key == "object":
@@ -159,6 +162,9 @@ class PixelRobosuite:
                 len(self.past_obses["state"]) - 1, self.past_obses["state"], self.state_stack
             ).to(self.device)
 
+        # this is what interests us : 
+
+        #  we first store the proprio sensor states of the robot :  
         props = []
         for key in self.prop_keys:
             props.append(obs[key])
@@ -169,6 +175,7 @@ class PixelRobosuite:
             len(self.past_obses["prop"]) - 1, self.past_obses["prop"], self.prop_stack
         ).to(self.device)
 
+        # now we store the camera images. 
         for camera_name in self.camera_names:
             image_key = f"{camera_name}_image"
             image_obs = obs[image_key]
@@ -193,7 +200,7 @@ class PixelRobosuite:
                 self.obs_stack,
             )
 
-        if self.record_sim_state:
+        if self.record_sim_state: # if true we record the full state of the mujoco simulator. 
             sim_state = self.env.sim.get_state().flatten()
             rl_obs["sim_state"] = torch.from_numpy(sim_state)
             for key in DEFAULT_STATE_KEYS:
@@ -203,6 +210,7 @@ class PixelRobosuite:
         return rl_obs, high_res_images
 
     def reset(self) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        self.env.render()  #  newly add to have rendering. 
         self.time_step = 0
         self.episode_reward = 0
         self.episode_extra_reward = 0
@@ -210,12 +218,12 @@ class PixelRobosuite:
         self.past_obses.clear()
         self.past_actions.clear()
         for _ in range(self.cond_action):
-            self.past_actions.append(torch.zeros(self.action_dim))
+            self.past_actions.append(torch.zeros(self.action_dim)) # → At the start of an episode, it fills the buffer with zero actions (a neutral placeholder).
 
-        obs = self.env.reset()
-        rl_obs, high_res_images = self._extract_images(obs)
+        obs = self.env.reset() # reset the environment. 
+        rl_obs, high_res_images = self._extract_images(obs) #  function just above. 
 
-        if self.cond_action > 0:
+        if self.cond_action > 0: #  must be superior to 0 to store actual images. 
             past_action = torch.from_numpy(np.stack(self.past_actions)).to(self.device)
             rl_obs["past_action"] = past_action
 
@@ -225,15 +233,17 @@ class PixelRobosuite:
         """
         all inputs and outputs are tensors
         """
-        if actions.dim() == 1:
+        if actions.dim() == 1: # If you pass a single action like shape (7,), it turns it into shape (1, 7).
             actions = actions.unsqueeze(0)
         num_action = actions.size(0)
+
+        #  here this function allows to take multiple steps in one pass, that is why we loop over the actions to step and encode the previous actions. 
 
         rl_obs = {}
         # record the action in original format from model
         if self.cond_action > 0:
             for i in range(actions.size(0)):
-                self.past_actions.append(actions[i])
+                self.past_actions.append(actions[i]) # here we append the action to the past actions and if there are too many ones, the deque will only keep the most recent ones. 
             past_action = torch.stack(list(self.past_actions)).to(self.device)
             rl_obs["past_action"] = past_action
 
