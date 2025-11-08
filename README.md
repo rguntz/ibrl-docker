@@ -24,11 +24,25 @@ Build the image :
 docker build -t ibrl-gpu .
 ```
 
-## Running the Container 
+## Running the Container without rendering : 
 ```bash
 docker run --gpus all -it --rm \
     -v $(pwd):/app \
     ibrl-gpu
+```
+
+## Running the container with rendering : 
+
+```bash
+xhost +local:docker
+```
+
+```bash
+docker run --gpus all -it --rm \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd):/app \
+  ibrl-gpu
 ```
 
 Compile the CPP files : 

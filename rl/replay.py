@@ -204,17 +204,17 @@ def add_demos_to_replay(
     f = h5py.File(data_path)
     num_episode: int = len(list(f["data"].keys()))  # type: ignore
     print(f"loading first {num_data} episodes from {data_path}")
-    print(f"Raw Dataset size (#episode): {num_episode}")
+    print(f"Raw Dataset size updated 2 (#episode): {num_episode}")
 
     all_actions = []
     for episode_id in range(num_episode):
         if num_data > 0 and episode_id >= num_data:
-            break
+            break               
 
         episode_tag = f"demo_{episode_id}"
         episode = f[f"data/{episode_tag}"]
         actions = np.array(episode["actions"]).astype(np.float32)  # type: ignore
-        images = {
+        images = { # stack all the images of the rl camera along the trajectory. 
             rl_camera: np.array(episode[f"obs/{rl_camera}_image"]) for rl_camera in rl_cameras
         }
         all_actions.append(actions)
@@ -222,12 +222,12 @@ def add_demos_to_replay(
         robot_locs = []
         if "prop" in episode["obs"]:
             props = episode["obs"]["prop"]
-        else:
+        else:# Load robot proprioception 
             for key in PROP_KEYS:
                 robot_locs.append(episode["obs"][key])  # type: ignore
             props = np.concatenate(robot_locs, axis=1).astype(np.float32)
 
-        if use_state:
+        if use_state: # not our case. 
             all_states = []
             cfg_path = os.path.join(os.path.dirname(data_path), "env_cfg.json")
             env_cfg = json.load(open(cfg_path, "r"))
@@ -249,10 +249,10 @@ def add_demos_to_replay(
         episode_len = rewards.shape[0]
         print(f"episode {episode_id} length: {episode_len}")
         past_obses = defaultdict(list)
-        for i in range(episode_len + 1):
+        for i in range(episode_len + 1): # loop over each episode trajectory. 
             if i < episode_len:
                 assert obs_stack == 1, "does not support obs stack yet"
-                obs = {
+                obs = { # initialize the set of images. 
                     rl_camera: torch.from_numpy(images[rl_camera][i]) for rl_camera in rl_cameras
                 }
 
