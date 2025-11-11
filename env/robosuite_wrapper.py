@@ -117,7 +117,8 @@ class PixelRobosuite:
         if self.rl_image_size != self.image_size:
             self.resize_transform = utils.get_rescale_transform(self.rl_image_size)
 
-        self.action_dim: int = len(self.env.action_spec[0])
+        self.action_dim: int = len(self.env.action_spec[0]) 
+        print("the action dimension is : ", self.action_dim)
         self._observation_shape: tuple[int, ...] = (3 * obs_stack, rl_image_size, rl_image_size)
         self._state_shape: tuple[int] = (STATE_SHAPE[env_name][0] * state_stack,)
         self.prop_shape: tuple[int] = (PROP_DIM * prop_stack,)
