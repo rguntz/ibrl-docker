@@ -85,6 +85,9 @@ def make_sim_env(
     task_name: str = "sim_transfer_cube",
     onscreen_render: bool = False,
     cam_list: list[str] = [],
+    max_steps: int = 1000,
+    
+
 ):
     """
     Create a simulated environment for bimanual robotic manipulation.
@@ -106,11 +109,15 @@ def make_sim_env(
         )
     else:
         raise NotImplementedError(f"Task {task_name} is not implemented.")
+    
+    time_limit = max_steps * DT
+
+    print("max step inside : ", max_steps, " time limit is : ", time_limit)
 
     return control.Environment(
         physics,
         task,
-        time_limit=20,
+        time_limit=time_limit,
         control_timestep=DT,
         n_sub_steps=None,
         flat_observation=False,

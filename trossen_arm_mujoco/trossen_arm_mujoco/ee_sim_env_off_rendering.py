@@ -26,17 +26,24 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import os
+# Set environment variables for headless rendering BEFORE importing MuJoCo
+os.environ['MUJOCO_GL'] = 'egl'  # Use EGL for headless rendering
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
+
 from dm_control.mujoco.engine import Physics
 from dm_control.suite import base
 import numpy as np
+from flask import Flask, Response
+import cv2
+import threading
+import time
 
 from trossen_arm_mujoco.constants import START_ARM_POSE
 from trossen_arm_mujoco.utils import (
     get_observation_base,
     make_sim_env,
-    plot_observation_images,
     sample_box_pose,
-    set_observation_images,
 )
 
 
@@ -80,7 +87,6 @@ class TrossenAIStationaryEETask(base.Task):
         np.copyto(physics.data.mocap_pos[1], action_right[:3])
         np.copyto(physics.data.mocap_quat[1], action_right[3:7])
 
-        # below is the gripper position. because there are 2 pliers we set both to the same value. 
         physics.data.qpos[6] = action_left[7]
         physics.data.qpos[7] = action_left[7]
         physics.data.qpos[14] = action_right[7]
@@ -256,37 +262,170 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
         return reward
 
 
-def test_ee_sim_env():
-    onscreen_render = True
+# Flask web streaming setup
+app = Flask(__name__)
+
+# Global variables for frame sharing
+latest_frames = {}
+frame_lock = threading.Lock()
+running = True
+
+
+def encode_frame(image):
+    """Encode numpy array image to JPEG bytes."""
+    _, buffer = cv2.imencode('.jpg', image)
+    return buffer.tobytes()
+
+
+def generate_stream(camera_name):
+    """Generator function for streaming camera frames."""
+    while running:
+        with frame_lock:
+            if camera_name in latest_frames:
+                frame = latest_frames[camera_name]
+            else:
+                # Create blank frame if no data yet
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        jpeg_bytes = encode_frame(frame)
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg_bytes + b'\r\n')
+        time.sleep(0.03)  # ~30 FPS
+
+
+@app.route('/video_feed/<camera_name>')
+def video_feed(camera_name):
+    """Video streaming route for each camera."""
+    return Response(generate_stream(camera_name),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/')
+def index():
+    """Main page with all camera feeds."""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Robot Camera Feeds</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #1a1a1a;
+                color: white;
+                margin: 0;
+                padding: 20px;
+            }
+            h1 {
+                text-align: center;
+            }
+            .camera-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 20px;
+                max-width: 1400px;
+                margin: 0 auto;
+            }
+            .camera-view {
+                background: #2a2a2a;
+                border-radius: 8px;
+                padding: 15px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            }
+            .camera-view h2 {
+                margin-top: 0;
+                color: #4CAF50;
+                font-size: 18px;
+            }
+            .camera-view img {
+                width: 100%;
+                height: auto;
+                border-radius: 4px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Trossen AI Robot Camera Feeds</h1>
+        <div class="camera-grid">
+            <div class="camera-view">
+                <h2>High Camera</h2>
+                <img src="/video_feed/cam_high" />
+            </div>
+            <div class="camera-view">
+                <h2>Low Camera</h2>
+                <img src="/video_feed/cam_low" />
+            </div>
+            <div class="camera-view">
+                <h2>Left Wrist Camera</h2>
+                <img src="/video_feed/cam_left_wrist" />
+            </div>
+            <div class="camera-view">
+                <h2>Right Wrist Camera</h2>
+                <img src="/video_feed/cam_right_wrist" />
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+
+def run_simulation():
+    """Run the simulation and update frames."""
+    global latest_frames, running
+    
     cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-    max_steps: int = 2
-    print("max steps is : ", max_steps)
     env = make_sim_env(
         TransferCubeEETask,
         task_name="sim_transfer_cube",
-        onscreen_render=onscreen_render,
+        onscreen_render=False,  # Headless mode
         cam_list=cam_list,
-        max_steps = max_steps, 
     )
+    
     ts = env.reset()
-    episode = [ts]
-    # setup plotting
-    if onscreen_render:
-        plt_imgs = plot_observation_images(ts.observation, cam_list)
-    for t in range(1000):
+    
+    for t in range(10000):  # Long-running simulation
+        if not running:
+            break
+            
         action = np.random.uniform(-0.1, 0.1, 23)
         ts = env.step(action)
-        if ts.last():
-            print("Episode ended, auto-reset will occur next step.")
-        #print("ts : ", ts)
-        #print("Reward : ", ts.reward)
-        episode.append(ts)
-        if onscreen_render:
-            plt_imgs = set_observation_images(ts.observation, plt_imgs, cam_list)
+        print(ts.reward, "reward")
+        
+        # Update frames for streaming
+        with frame_lock:
+            print("updating frames")
+            for cam_name in cam_list:
+                img = ts.observation['images'][cam_name]
+                latest_frames[cam_name] = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        
+        if t % 100 == 0:
+            print(f"Step: {t}, Reward: {ts.reward}")
+        
+        time.sleep(0.01)  # Small delay to control simulation speed
+
+
+def test_ee_sim_env():
+    """Test the simulation environment with Flask streaming."""
+    # Start simulation in a separate thread
+    sim_thread = threading.Thread(target=run_simulation, daemon=True)
+    sim_thread.start()
     
-
-
+    print("\n" + "="*60)
+    print("Starting Flask server for camera streaming...")
+    print("Open your browser and navigate to:")
+    print("  http://localhost:5000")
+    print("\nIf running in Docker, make sure to expose port 5000")
+    print("Example: docker run -p 5000:5000 your_image")
+    print("="*60 + "\n")
+    
+    # Start Flask server (use 0.0.0.0 to allow external access)
+    app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
 
 
 if __name__ == "__main__":
-    test_ee_sim_env()
+    try:
+        test_ee_sim_env()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        running = False

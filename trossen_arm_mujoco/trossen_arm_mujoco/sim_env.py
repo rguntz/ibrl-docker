@@ -119,7 +119,7 @@ class TrossenAIStationaryTask(base.Task):
         :return: The joint positions.
         """
         position = physics.data.qpos.copy()
-        return position[:16]
+        return position[:16] # 6 revolute joints +  2 gripper joints. 
 
     def get_velocity(self, physics: Physics) -> np.ndarray:
         """
