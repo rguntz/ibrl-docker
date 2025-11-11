@@ -10,12 +10,12 @@ git checkout Trossen
 
 # Install dependencies
 First Install MuJoCo
-
+```bash 
 mkdir -p /root/.mujoco 
 wget https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz 
 tar -xvzf mujoco210-linux-x86_64.tar.gz -C /root/.mujoco
 rm mujoco210-linux-x86_64.tar.gz
-
+```
 
 Download data and BC models
 
