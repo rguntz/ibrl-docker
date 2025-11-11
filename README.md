@@ -80,7 +80,7 @@ Train RL policy using the BC policy provided in `release` folder
 
 ```shell
 # can
-python train_rl.py --config_path release/cfgs/trossen/transfer_cube_task.yaml
+python train_rl_trossen.py --config_path release/cfgs/trossen/transfer_cube_task.yaml
 ```
 
 
