@@ -61,6 +61,7 @@ class VitEncoder(nn.Module):
         super().__init__()
         self.obs_shape = obs_shape
         self.cfg = cfg
+        print("obs state inside the vit encoder : ", obs_shape)
         self.vit = MinVit(
             embed_style=cfg.embed_style,
             embed_dim=cfg.embed_dim,
@@ -70,6 +71,7 @@ class VitEncoder(nn.Module):
         )
 
         self.num_patch = self.vit.num_patches
+        print("the number of patches is : ", self.num_patch)
         self.patch_repr_dim = self.cfg.embed_dim
         self.repr_dim = self.cfg.embed_dim * self.vit.num_patches
 

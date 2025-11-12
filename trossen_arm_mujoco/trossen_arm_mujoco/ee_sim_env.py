@@ -268,6 +268,9 @@ def test_ee_sim_env():
         cam_list=cam_list,
         max_steps = max_steps, 
     )
+
+    print("the shape of the obs is : ", env.observation_shape)
+
     ts = env.reset()
     episode = [ts]
     # setup plotting

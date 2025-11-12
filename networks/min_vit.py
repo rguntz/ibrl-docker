@@ -5,6 +5,10 @@ from torch.nn.init import trunc_normal_
 
 
 class PatchEmbed1(nn.Module):
+    """
+    (batch_size, 3, H, W) → into a sequence of patch embeddings of shape
+    (batch_size, num_patches, embed_dim).
+    """
     def __init__(self, embed_dim):
         super().__init__()
         self.conv = nn.Conv2d(3, embed_dim, kernel_size=8, stride=8)
@@ -15,6 +19,23 @@ class PatchEmbed1(nn.Module):
     def forward(self, x: torch.Tensor):
         y = self.conv(x)
         y = einops.rearrange(y, "b c h w -> b (h  w) c")
+        return y
+
+
+class PatchEmbedTrossen(nn.Module):
+    def __init__(self, embed_dim, use_norm=False):
+        super().__init__()
+        # Example: kernel and stride chosen to produce reasonable number of patches
+        # For 96x128 input, let's do a 8x8 kernel with stride 8 for height and 8 for width
+        self.conv = nn.Conv2d(3, embed_dim, kernel_size=(8, 8), stride=(8, 8))
+        
+        # Compute number of patches dynamically for 96x128
+        self.num_patch = (96 // 8) * (128 // 8)  # 12 * 16 = 192
+        self.patch_dim = embed_dim
+
+    def forward(self, x: torch.Tensor):
+        y = self.conv(x)
+        y = einops.rearrange(y, "b c h w -> b (h w) c")
         return y
 
 
@@ -36,6 +57,8 @@ class PatchEmbed2(nn.Module):
         y = self.embed(x)
         y = einops.rearrange(y, "b c h w -> b (h  w) c")
         return y
+
+
 
 
 class MultiHeadAttention(nn.Module):
@@ -92,6 +115,8 @@ class MinVit(nn.Module):
             self.patch_embed = PatchEmbed1(embed_dim)
         elif embed_style == "embed2":
             self.patch_embed = PatchEmbed2(embed_dim, use_norm=embed_norm)
+        elif embed_style == "embedTross":  # <--- new option
+            self.patch_embed = PatchEmbedTrossen(embed_dim, use_norm=embed_norm)
         else:
             assert False
 

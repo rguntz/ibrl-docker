@@ -110,7 +110,7 @@ class PixelTrossen:
 
         self.resize_transform = None
         if self.rl_image_size != self.image_size:
-            self.resize_transform = utils.get_rescale_transform(self.rl_image_size)
+            self.resize_transform = utils.get_rescale_transform((self.rl_image_size, self.rl_image_size))
 
         # Action dimension: 23 (pos(3) + quat(4) + gripper(1)) * 2 arms + extra dim
         # Based on ee_sim_env.py test, action is 23-dimensional
@@ -183,7 +183,7 @@ class PixelTrossen:
                 continue
 
             rl_image_obs = image_obs
-            if self.resize_transform is not None:
+            if self.resize_transform is not None: 
                 rl_image_obs = self.resize_transform(rl_image_obs.to(self.device))
             
             self.past_obses[camera_name].append(rl_image_obs)
@@ -219,21 +219,21 @@ class PixelTrossen:
         ts = self.env.reset()
         obs = ts.observation
 
-        print("obs before reset : ", obs.keys())
+        obs_display = obs.copy()
+
 
         if 'images' in obs:
             for cam_name, cam_data in obs['images'].items():
                 obs[cam_name] = cam_data
             del obs['images']
 
-        print("obs after removing images : ", obs.keys())
         
         rl_obs, high_res_images = self._extract_images(obs)
 
         # Rendering : 
         if self.onscreen_render and self._plt_fig is None:
             self._plt_fig = plt.figure()
-            self._plt_imgs = plot_observation_images(obs, self.camera_names)
+            self._plt_imgs = plot_observation_images(obs_display, self.camera_names)
 
         if self.cond_action > 0:
             past_action = torch.from_numpy(np.stack(self.past_actions)).to(self.device)
@@ -242,6 +242,7 @@ class PixelTrossen:
         return rl_obs, high_res_images
 
     def step(self, actions: torch.Tensor) -> tuple[dict, float, bool, bool, dict]:
+
         """
         Step the environment with given actions.
         All inputs and outputs are tensors.
@@ -282,19 +283,22 @@ class PixelTrossen:
             self.time_step += 1
             
             # Clip each action dimension to [-0.1, 0.1]
-            clipped_action = np.clip(actions[i], -0.1, 0.1)
+            clipped_action = np.clip(actions[i], -0.1, 0.1) # clip action is done. 
             ts = self.env.step(clipped_action)
 
             obs = ts.observation
+            obs_display = obs.copy()
 
             if 'images' in obs:
                 for cam_name, cam_data in obs['images'].items():
                     obs[cam_name] = cam_data
                 del obs['images']
 
+            #print("obs are : ", obs)
+
             # Rendering : 
             if self.onscreen_render and self._plt_imgs is not None:
-                self._plt_imgs = set_observation_images(obs, self._plt_imgs, self.camera_names)
+                self._plt_imgs = set_observation_images(obs_display, self._plt_imgs, self.camera_names)
                 
             step_reward = ts.reward if ts.reward is not None else 0
             terminal = ts.last() # common in dm control. 
