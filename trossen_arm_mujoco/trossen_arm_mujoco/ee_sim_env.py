@@ -68,7 +68,8 @@ class TrossenAIStationaryEETask(base.Task):
         :param action: The action vector containing position and gripper commands.
         :param physics: The simulation physics instance.
         """
-        a_len = len(action) // 2
+        a_len = len(action) // 2 
+        print("the action length is : ", len(action))
         action_left = action[:a_len]
         action_right = action[a_len:]
 
@@ -268,8 +269,6 @@ def test_ee_sim_env():
         cam_list=cam_list,
         max_steps = max_steps, 
     )
-
-    print("the shape of the obs is : ", env.observation_shape)
 
     ts = env.reset()
     episode = [ts]
