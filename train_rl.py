@@ -58,7 +58,7 @@ class MainConfig(common_utils.RunConfig):
     add_bc_loss: int = 0
     # others
     env_reward_scale: float = 1
-    num_warm_up_episode: int = 50
+    num_warm_up_episode: int = 0
     num_eval_episode: int = 10
     save_per_success: int = -1
     mp_eval: int = 0  # eval with multiprocess
@@ -307,6 +307,7 @@ class Workspace:
             self.replay.add(obs, reply, reward, terminal, success, image_obs)
 
             if terminal:
+                print("num warmup : ", num_episode, "final")
                 num_episode += 1
                 total_reward += self.train_env.episode_reward
                 if self.replay.size() < self.cfg.num_warm_up_episode:
@@ -332,7 +333,7 @@ class Workspace:
 
         if self.replay.num_episode < self.cfg.num_warm_up_episode:
             print("doing the warmup")
-            self.warm_up() # fill the replay buffer with demo data or the behavior cloning policy
+            #self.warm_up() # fill the replay buffer with demo data or the behavior cloning policy
             print("finished the warmup")
 
 

@@ -24,8 +24,8 @@ class QAgentConfig:
     stddev_clip: float = 0.3
     # encoder
     use_prop: int = 0
-    enc_type: str = "vit" # this is the basic config. 
-    vit: VitEncoderConfig = field(default_factory=lambda: VitEncoderConfig()) #  the field allows to create multiple QAgentConfig classes without sharing them the same encoders 
+    enc_type: str = "vit"
+    vit: VitEncoderConfig = field(default_factory=lambda: VitEncoderConfig())
     resnet: ResNetEncoderConfig = field(default_factory=lambda: ResNetEncoderConfig())
     resnet96: ResNet96EncoderConfig = field(default_factory=lambda: ResNet96EncoderConfig())
     # critic & actor
@@ -34,14 +34,16 @@ class QAgentConfig:
     state_critic: MultiFcQConfig = field(default_factory=lambda: MultiFcQConfig())
     state_actor: FcActorConfig = field(default_factory=lambda: FcActorConfig())
     # algo
-    act_method: str = "rl"  # "rl/ibrl/ibrl_soft"
-    bootstrap_method: str = ""  # "rl/ibrl/ibrl_soft"
+    act_method: str = "rl"
+    bootstrap_method: str = ""
     # ibrl
     ibrl_eps_greedy: float = 1
     soft_ibrl_beta: float = 10
     # bc loss regularization
     bc_loss_coef: float = 0.1
-    bc_loss_dynamic: int = 0  # dynamically scale bc loss weight
+    bc_loss_dynamic: int = 0
+    # multi-camera
+    camera_names: list = field(default_factory=lambda: ['cam_right_wrist', 'cam_low', 'cam_left_wrist', 'cam_high'])
 
     def __post_init__(self):
         if self.bootstrap_method == "":
@@ -50,41 +52,52 @@ class QAgentConfig:
 
 class QAgent(nn.Module):
     def __init__(
-        self, use_state, obs_shape, prop_shape, action_dim, rl_camera: str, cfg: QAgentConfig # inherit from the config above : QAgentConfig
+        self, use_state, obs_shape, prop_shape, action_dim, rl_camera: str, cfg: QAgentConfig
     ):
         super().__init__()
-        self.use_state = use_state # use the state information. 
-        self.rl_camera = rl_camera
+        self.use_state = use_state
+        self.rl_camera = rl_camera  # Keep for backward compatibility, but will use camera_names
         self.cfg = cfg
+        self.camera_names = cfg.camera_names
 
-        if use_state: # false in our case so we dont enter here. 
+        if use_state:
             self.critic = MultiFcQ(obs_shape, action_dim, cfg.state_critic)
             self.actor = FcActor(obs_shape, action_dim, cfg.state_actor)
-        else: # this is our case. 
-            self.encoder = self._build_encoders(obs_shape) # passed from the train_rl.py
+        else:
+            # Build shared encoder for all cameras
+            self.encoder = self._build_encoders(obs_shape)
             repr_dim = self.encoder.repr_dim
             patch_repr_dim = self.encoder.patch_repr_dim
-            print("encoder output dim: ", repr_dim)
-            print("patch output dim: ", patch_repr_dim) # for ViT => this is the patch size used. 
+            
+            # Total representation dimension is encoder output * number of cameras
+            total_repr_dim = repr_dim * len(self.camera_names)
+            total_patch_repr_dim = patch_repr_dim * len(self.camera_names)
+            
+            print(f"Single encoder output dim: {repr_dim}")
+            print(f"Single patch output dim: {patch_repr_dim}")
+            print(f"Number of cameras: {len(self.camera_names)}")
+            print(f"Total concatenated repr dim: {total_repr_dim}")
+            print(f"Total concatenated patch dim: {total_patch_repr_dim}")
+            print("the input dimension encoded is : ", obs_shape)
 
             assert len(prop_shape) == 1
             prop_dim = prop_shape[0] if cfg.use_prop else 0
 
-            # create critics & actor
-            self.critic = Critic( 
-                repr_dim=repr_dim,
-                patch_repr_dim=patch_repr_dim,
+            # Create critics & actor with concatenated dimensions
+            self.critic = Critic(
+                repr_dim=total_repr_dim,
+                patch_repr_dim=total_patch_repr_dim,
                 prop_dim=prop_dim,
                 action_dim=action_dim,
                 cfg=self.cfg.critic,
             )
-            self.actor = Actor(repr_dim, patch_repr_dim, prop_dim, action_dim, cfg.actor)
+            self.actor = Actor(total_repr_dim, total_patch_repr_dim, prop_dim, action_dim, cfg.actor)
 
         self.critic_target = copy.deepcopy(self.critic)
         self.actor_target = copy.deepcopy(self.actor)
 
         if not self.use_state:
-            print(common_utils.wrap_ruler(f"encoder weights"))
+            print(common_utils.wrap_ruler(f"shared encoder weights"))
             print(self.encoder)
             common_utils.count_parameters(self.encoder)
 
@@ -107,7 +120,6 @@ class QAgent(nn.Module):
         self.aug = common_utils.RandomShiftsAug(pad=4)
 
         self.bc_policies: list[nn.Module] = []
-        # to log rl vs bc during evaluation
         self.stats: Optional[common_utils.MultiCounter] = None
 
         self.critic_target.train(False)
@@ -115,7 +127,9 @@ class QAgent(nn.Module):
         self.to(self.cfg.device)
 
     def _build_encoders(self, obs_shape):
+        print("enters here")
         if self.cfg.enc_type == "vit":
+            print("the input shape for the ViT is : ", obs_shape)
             return VitEncoder(obs_shape, self.cfg.vit).to(self.cfg.device)
         elif self.cfg.enc_type == "resnet":
             return ResNetEncoder(obs_shape, self.cfg.resnet).to(self.cfg.device)
@@ -156,12 +170,39 @@ class QAgent(nn.Module):
         return
 
     def _encode(self, obs: dict[str, torch.Tensor], augment: bool) -> torch.Tensor:
-        """This function encodes the observation into feature tensor."""
-        data = obs[self.rl_camera].float()
-        if augment:
-            data = self.aug(data)
-        print("data.shape is : ", data.shape)
-        return self.encoder.forward(data, flatten=False)
+        """
+        Encode observations from all cameras using shared encoder and concatenate.
+        
+        Args:
+            obs: Dictionary containing camera observations
+            augment: Whether to apply data augmentation
+            
+        Returns:
+            Concatenated features from all cameras
+        """
+        encoded_features = []
+        
+        for cam_name in self.camera_names:
+            data = obs[cam_name].float()
+            if augment:
+                data = self.aug(data)
+            # Encode with shared encoder
+            feat = self.encoder.forward(data, flatten=False)
+            encoded_features.append(feat)
+
+        # The final output of the model should 4 times 192 patches which is : 768 times 128 => because the embedding dimension is 128. 
+        
+        # Concatenate along the appropriate dimension
+        # If feat is [batch, num_patches, patch_dim], concatenate along num_patches
+        # If feat is [batch, repr_dim], concatenate along repr_dim
+        if len(encoded_features[0].shape) == 3: # => this is done for ViT
+            # Shape: [batch, num_patches, patch_dim] -> concatenate along patch dimension
+            concatenated = torch.cat(encoded_features, dim=1)
+        else: # => this is done for Resnet. 
+            # Shape: [batch, repr_dim] -> concatenate along feature dimension
+            concatenated = torch.cat(encoded_features, dim=-1)
+        
+        return concatenated
 
     def _maybe_unsqueeze_(self, obs):
         should_unsqueeze = False
@@ -169,7 +210,8 @@ class QAgent(nn.Module):
             if obs["state"].dim() == 1:
                 should_unsqueeze = True
         else:
-            if obs[self.rl_camera].dim() == 3:
+            # Check any camera
+            if obs[self.camera_names[0]].dim() == 3:
                 should_unsqueeze = True
 
         if should_unsqueeze:
@@ -217,10 +259,11 @@ class QAgent(nn.Module):
         else:
             assert False, f"unknown act method {self.cfg.act_method}"
 
+
         if unsqueezed:
             action = action.squeeze(0)
 
-        action = action.detach()
+        action = action.detach() #  we detatch because this action is the output of the policy and we dont do gradient update for it. 
         if cpu:
             action = action.cpu()
         return action
@@ -274,8 +317,6 @@ class QAgent(nn.Module):
         rl_bc_actions = torch.stack([rl_action, bc_action], dim=1)
         bsize, num_action, _ = rl_bc_actions.size()
 
-        # get q(a)
-        # feat -> [batch, num_patch, patch_dim] -> [batch, num_action(2), num_patch, patch_dim]
         flat_actions = rl_bc_actions.flatten(0, 1)
         if isinstance(self.critic_target, Critic):
             flat_qfeats = obs["feat"].unsqueeze(1).repeat(1, num_action, 1, 1).flatten(0, 1)
@@ -288,10 +329,8 @@ class QAgent(nn.Module):
             qa: torch.Tensor = self.critic_target.forward_k(flat_state, flat_actions)
             qa = qa.min(-1)[0].view(bsize, num_action)
 
-        # best_action_idx: [batch]
         greedy_action_idx: torch.Tensor = qa.argmax(1)
         greedy_action = rl_bc_actions[range(bsize), greedy_action_idx]
-        # actions: [batch, action_dim]
 
         if eval_mode or eps_greedy == 1:
             action = greedy_action
@@ -352,8 +391,6 @@ class QAgent(nn.Module):
 
         rl_bc_actions = torch.stack([rl_action, bc_action], dim=1)
 
-        # cat along the num action dim
-        # actions: [bsize, n_rl_actions + n_bc_actions * n_bc, action_dim]
         bsize, num_action, _ = rl_bc_actions.size()
 
         flat_actions = rl_bc_actions.flatten(0, 1)
@@ -368,20 +405,17 @@ class QAgent(nn.Module):
             qa: torch.Tensor = self.critic_target.forward_k(flat_state, flat_actions)
             qa = qa.min(-1)[0].view(bsize, num_action)
 
-        # decide which action to take
         p_center = torch.nn.functional.softmax(qa * self.cfg.soft_ibrl_beta, dim=1)
         center_idx = p_center.multinomial(1)
         if (not use_target) and self.stats is not None and (not eval_mode):
             assert bsize == 1
             self.stats["actor/p_max"].append(p_center.max().item())
 
-        # center_idx: [batchsize, 1]
         action = rl_action * (1 - center_idx) + bc_action * center_idx
 
         if self.stats is not None:
             use_bc = center_idx.sum().item()
             if use_target:
-                # must be called from update_critic
                 self.stats["actor/bootstrap_bc"].append(use_bc, bsize)
             else:
                 if eval_mode:
@@ -403,7 +437,6 @@ class QAgent(nn.Module):
         stddev: float,
     ):
         with torch.no_grad():
-            # use train mode as we use actor dropout
             assert self.actor_target.training
 
             if self.cfg.bootstrap_method == "rl":
@@ -433,6 +466,7 @@ class QAgent(nn.Module):
                 )
             else:
                 assert False, f"unknown bootstrap method {self.cfg.bootstrap_method}"
+
 
             if isinstance(self.critic_target, Critic):
                 target_q1, target_q2 = self.critic_target.forward(
@@ -541,16 +575,12 @@ class QAgent(nn.Module):
             with torch.no_grad(), utils.eval_mode(self, ref_agent):
                 assert ref_agent.cfg.act_method == "rl"
 
-                # temporarily change to rl since we want to regularize actor not hybrid
                 act_method = self.cfg.act_method
                 self.cfg.act_method = "rl"
 
-                ref_bc_obs = bc_batch.obs.copy()  # shallow copy
+                ref_bc_obs = bc_batch.obs.copy()
                 ref_action = ref_agent.act(ref_bc_obs, eval_mode=True, cpu=False)
 
-                # we first get the ref_action and then pop the feature
-                # then we get the curr_action so that the obs["feat"] is the current feature
-                # which can be used for computing q-values
                 bc_obs = bc_batch.obs
                 curr_action = self.act(bc_obs, eval_mode=True, cpu=False)
 
@@ -563,7 +593,6 @@ class QAgent(nn.Module):
 
                 ratio = (ref_q > curr_q).float().mean().item()
 
-                # recover to original act_method
                 self.cfg.act_method = act_method
 
         loss = actor_loss + (self.cfg.bc_loss_coef * ratio * bc_loss).mean()
@@ -609,7 +638,6 @@ class QAgent(nn.Module):
         if not update_actor:
             return metrics
 
-        # NOTE: actor loss does not backprop into the encoder
         if not self.use_state:
             obs["feat"] = obs["feat"].detach()
 
