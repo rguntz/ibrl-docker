@@ -3,7 +3,20 @@ import torch
 import torch.nn as nn
 from networks.encoder import ResNetEncoder, ResNetEncoderConfig
 
+"""
+     camera1 image ─┐
+                     │   ┌──────────────────────────┐
+     camera2 image ──┼──▶│  ResNetEncoder + Linear  │
+                     │   └──────────────────────────┘
+     camera3 image ─┘
+                         ↓ fuse (cat/add/mult)
+                   ┌────────────────────────────┐
+                   │ Concatenate proprioception │
+                   └────────────────────────────┘
+                         ↓
+                   Final fused vector h
 
+"""
 @dataclass
 class MultiViewEncoderConfig:
     fuse_method: str = "cat"

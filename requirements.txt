@@ -64,3 +64,7 @@ typing-extensions>=4.10.0
 urllib3==1.26.13
 zipp==3.18.1
 wandb==0.16.4
+
+
+flask 
+pyzmq

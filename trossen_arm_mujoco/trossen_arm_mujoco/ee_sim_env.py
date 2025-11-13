@@ -25,6 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+from scipy.spatial.transform import Rotation as R
 
 from dm_control.mujoco.engine import Physics
 from dm_control.suite import base
@@ -69,12 +70,15 @@ class TrossenAIStationaryEETask(base.Task):
         :param physics: The simulation physics instance.
         """
         a_len = len(action) // 2 
-        print("the action length is : ", len(action))
         action_left = action[:a_len]
         action_right = action[a_len:]
 
         # set mocap position and quat
         # left
+        """
+        This sets the desired target position/orientation (mocap).  
+        Then, in the physics step, MuJoCo will pull the real end-effector toward that target.
+        """
         np.copyto(physics.data.mocap_pos[0], action_left[:3])
         np.copyto(physics.data.mocap_quat[0], action_left[3:7])
         # right
@@ -255,6 +259,27 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
         if touch_left_gripper and not touch_table:  # successful transfer
             reward = 4
         return reward
+    
+    
+
+    def get_arm_states(self, physics):
+        left_pos = physics.named.data.geom_xpos["left/gripper_follower_left"].copy()
+        right_pos = physics.named.data.geom_xpos["right/gripper_follower_left"].copy()
+
+        left_rot_mat = physics.named.data.geom_xmat["left/gripper_follower_left"].copy().reshape(3, 3)
+        right_rot_mat = physics.named.data.geom_xmat["right/gripper_follower_left"].copy().reshape(3, 3)
+
+        left_quat = R.from_matrix(left_rot_mat).as_quat()
+        right_quat = R.from_matrix(right_rot_mat).as_quat()
+
+        left_grip = float(np.mean([physics.data.qpos[6], physics.data.qpos[7]]))
+        right_grip = float(np.mean([physics.data.qpos[14], physics.data.qpos[15]]))
+
+        return {
+            "left": {"pos": left_pos, "quat": left_quat, "grip": left_grip},
+            "right": {"pos": right_pos, "quat": right_quat, "grip": right_grip},
+        }
+
 
 
 def test_ee_sim_env():
@@ -272,12 +297,14 @@ def test_ee_sim_env():
 
     ts = env.reset()
     episode = [ts]
+    error = []
     # setup plotting
     if onscreen_render:
         plt_imgs = plot_observation_images(ts.observation, cam_list)
     for t in range(1000):
         action = np.random.uniform(-0.1, 0.1, 23)
         ts = env.step(action)
+        #print(np.mean(error))
         if ts.last():
             print("Episode ended, auto-reset will occur next step.")
         #print("ts : ", ts)

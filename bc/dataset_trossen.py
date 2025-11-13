@@ -26,12 +26,12 @@ class DatasetConfig:
     use_state: int = 0
     prop_stack: int = 1
     norm_action: int = 0
-    obs_stack: int = 1
+    obs_stack: int = 1 #  how many observations to stack. 
     state_stack: int = 1
-    real_data: int = 0
+    real_data: int = 0 # if the data comes from the simulation or the real robot. 
 
     def __post_init__(self):
-        self.rl_cameras = self.rl_camera.split("+")
+        self.rl_cameras = self.rl_camera.split("+") # as before at this point. 
 
     @cached_property
     def env_config(self) -> dict:
@@ -63,24 +63,24 @@ class RobomimicDataset:
     def __init__(self, cfg: DatasetConfig):
         self.cfg = cfg
 
-        self.data = []
-        datafile = h5py.File(cfg.path)
+        self.data = [] # list of episodes
+        datafile = h5py.File(cfg.path) # maps global step index → (episode_id, timestep)
         num_episode: int = len(list(datafile["data"].keys()))  # type: ignore
         print(f"Raw Dataset size (#episode): {num_episode}")
 
         self.idx2entry = []  # store idx -> (episode_idx, timestep_idx)
         episode_lens = []
         all_actions = []  # for # logging purpose
-        for episode_id in range(num_episode):
+        for episode_id in range(num_episode): # everything that is below is inside this loop. 
             if cfg.num_data > 0 and len(episode_lens) >= cfg.num_data:
                 break
 
             episode_tag = f"demo_{episode_id}"
-            episode = datafile[f"data/{episode_tag}"]
+            episode = datafile[f"data/{episode_tag}"] # get the episode. 
 
-            if self.cfg.real_data:
+            if self.cfg.real_data: 
                 rewards = np.array(episode["rewards"]).astype(np.float32)  # type: ignore
-                assert rewards.sum() == 1, f"wrong reward for episode {rewards.sum()}"
+                assert rewards.sum() == 1, f"wrong reward for episode {rewards.sum()}" #  assert that there is only 1 successful event (the last where the reward is 1). 
 
             actions = np.array(episode["actions"]).astype(np.float32)  # type: ignore
             actions = torch.from_numpy(actions)
@@ -94,7 +94,7 @@ class RobomimicDataset:
                     print(k, np.array(v).shape)
                 common_utils.wrap_ruler("", 60)
 
-            if self.cfg.use_state:
+            if self.cfg.use_state: # not our case. 
                 all_states = []
                 for key in STATE_KEYS[self.cfg.task_name]:
                     all_states.append(episode["obs"][key])  # type: ignore
@@ -106,17 +106,18 @@ class RobomimicDataset:
                     episode_data[camera] = obses
 
             # proprioception states
-            if "obs/prop" in episode:  # type: ignore
+            if "obs/prop" in episode:  # It will exist and we will use it. 
                 prop = np.array(episode["obs/prop"])  # type: ignore
                 episode_data["prop"] = prop.astype(np.float32)
-            else:
+            else: # we dont care about this. 
                 robot_locs = []
                 for key in PROP_KEYS:
                     robot_locs.append(episode["obs"][key])  # type: ignore
                 episode_data["prop"] = np.concatenate(robot_locs, axis=1).astype(np.float32)
 
             episode_len = actions.shape[0]
-            assert (
+            # Reject episodes longer than allowed : 
+            assert (  
                 episode_len < cfg.eval_episode_len
             ), f"found episode len {episode_len} > {cfg.eval_episode_len} (eval_len)"
             if self.cfg.max_len > 0 and episode_len > self.cfg.max_len:
@@ -124,15 +125,24 @@ class RobomimicDataset:
                 continue
 
             # convert the data to list of dict
+            """
+            Goal : to create this structure : 
+            [
+            {"action": ..., "prop": ..., "camera_image": ...},  # t=0
+            {"action": ..., "prop": ..., "camera_image": ...},  # t=1
+            ...
+            ]
+            """
             episode_entries = []
             for i in range(episode_len):
                 entry = {"action": episode_data["action"][i]}
-                if self.cfg.ctrl_delta:
+                if self.cfg.ctrl_delta: # maybe we need to modify this for our task as we are now doing joint control. 
                     assert entry["action"].min() >= -1
                     assert entry["action"].max() <= 1
 
-                entry["prop"] = utils.concat_obs(i, episode_data["prop"], cfg.prop_stack)
-                if cfg.use_state:
+                entry["prop"] = utils.concat_obs(i, episode_data["prop"], cfg.prop_stack) # It takes the current timestep i, the array (e.g. all prop values over time), 
+                # and a stack number (e.g. 3), and returns a stacked observation of several recent frames.
+                if cfg.use_state: # not our case. 
                     entry["state"] = utils.concat_obs(i, episode_data["state"], cfg.state_stack)
                 else:
                     for camera in cfg.rl_cameras:
@@ -140,6 +150,7 @@ class RobomimicDataset:
 
                 self.idx2entry.append((len(self.data), len(episode_entries)))
                 episode_entries.append(entry)
+                # So if we are currently processing: Episode 4 Step 27 then idx2entry will get (4, 27) appended.
 
             episode_lens.append(len(episode_entries))
             self.data.append(episode_entries)
@@ -208,7 +219,7 @@ class RobomimicDataset:
     def __getitem__(self, idx):
         return self.data[idx]
 
-    def _convert_to_batch(self, samples, device):
+    def _convert_to_batch(self, samples, device): # Convert the samples to pytorch batches. 
         batch = {}
         for k, v in samples.items():
             batch[k] = torch.stack(v).to(device)
