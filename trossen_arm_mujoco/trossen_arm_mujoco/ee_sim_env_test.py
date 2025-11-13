@@ -76,7 +76,7 @@ class TrossenAIStationaryEETask(base.Task):
         # set mocap position and quat
         # left
         """
-        This sets the desired target position/orientation (mocap).  
+        This sets the desired target position/orientation (mocap).
         Then, in the physics step, MuJoCo will pull the real end-effector toward that target.
         """
         np.copyto(physics.data.mocap_pos[0], action_left[:3])
@@ -295,24 +295,89 @@ def test_ee_sim_env():
         max_steps = max_steps, 
     )
 
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D  # needed for 3D plotting
+
+    # Reset environment
     ts = env.reset()
     episode = [ts]
     error = []
-    # setup plotting
+
+    # Containers for trajectories
+    true_ee_pos = []
+    mocap_ee_pos = []
+
+    # Setup plotting (if you already use onscreen rendering)
     if onscreen_render:
         plt_imgs = plot_observation_images(ts.observation, cam_list)
+
+    # Run one episode
     for t in range(1000):
         action = np.random.uniform(-0.1, 0.1, 23)
         ts = env.step(action)
-        #print(np.mean(error))
+        state = env.task.get_arm_states(env.physics)
+        
+        # Extract positions
+        ee_pos = state["right"]["pos"]                      # true end-effector pos (3,)
+        mocap_pos = ts.observation["mocap_pose_right"][0:3] # mocap pose pos (3,)
+
+        # Store for plotting later
+        true_ee_pos.append(ee_pos)
+        mocap_ee_pos.append(mocap_pos)
+        
+        # Compute tracking error
+        diff_mocap_ee_quat = np.linalg.norm(ee_pos - mocap_pos)
+        error.append(diff_mocap_ee_quat)
+        
+        print(ee_pos, mocap_pos)
+
         if ts.last():
             print("Episode ended, auto-reset will occur next step.")
-        #print("ts : ", ts)
-        #print("Reward : ", ts.reward)
+            break
+
         episode.append(ts)
-        if onscreen_render:
-            plt_imgs = set_observation_images(ts.observation, plt_imgs, cam_list)
-    
+
+    # Convert lists to arrays
+    true_ee_pos = np.array(true_ee_pos)
+    mocap_ee_pos = np.array(mocap_ee_pos)
+
+    # ---- 3D PLOT ----
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_title("EE vs Mocap Right Trajectories")
+
+    # Plot trajectories
+    ax.plot(true_ee_pos[:, 0], true_ee_pos[:, 1], true_ee_pos[:, 2],
+            color='blue', label='True EE (Right)', alpha=0.8)
+    ax.scatter(true_ee_pos[:, 0], true_ee_pos[:, 1], true_ee_pos[:, 2],
+            color='blue', s=10)
+
+    ax.plot(mocap_ee_pos[:, 0], mocap_ee_pos[:, 1], mocap_ee_pos[:, 2],
+            color='red', label='Mocap EE (Right)', alpha=0.8)
+    ax.scatter(mocap_ee_pos[:, 0], mocap_ee_pos[:, 1], mocap_ee_pos[:, 2],
+            color='red', s=10)
+
+    # Make it look nice
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.legend()
+    ax.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    # Optional: plot tracking error over time
+    plt.figure()
+    plt.plot(error, color='purple')
+    plt.title("Tracking Error (EE vs Mocap Right)")
+    plt.xlabel("Timestep")
+    plt.ylabel("Position Error (Euclidean norm)")
+    plt.grid(True)
+    plt.show()
+
+    plt.show(block=True)
+
 
 
 

@@ -21,7 +21,7 @@ XML_PATH = Path(__file__).parent.parent / "trossen_sim" / "trossen_sim" / "envs"
 class DualRobotTeleopSim:
     def __init__(self, 
                  leader_left_ip: str = '192.168.1.2',
-                 leader_right_ip: str = '192.168.1.3',
+                 leader_right_ip: str = '192.168.1.4',
                  model: str = 'wxai_v0'):
         """
         Initialize dual robot teleop to sim.
@@ -94,16 +94,6 @@ class DualRobotTeleopSim:
         self.mj_model = mujoco.MjModel.from_xml_path(str(XML_PATH)) # XML_PATH points to a MuJoCo XML file. This file describes your entire simulation scene, including:
         self.mj_data = mujoco.MjData(self.mj_model) # MjData is the dynamic state of the simulation for that model.
 
-        """ 
-        qpos	Joint positions
-        qvel	Joint velocities
-        ctrl	Actuator inputs / commands
-        xpos / xquat	World positions/orientations of bodies
-        mocap_pos / mocap_quat	Motion capture (floating end-effector) poses
-        ncon	Number of current contacts
-        contact	Contact info (geoms in contact)
-        """
-        
         # Spawn cube at random position
         self._randomize_cube()
         
@@ -222,6 +212,8 @@ class DualRobotTeleopSim:
         start_time = time.time()
         end_time = start_time + duration
         loop_count = 0
+
+        step = 0
         
         print("ℹ️  Teleoperation will run for {:.0f} seconds".format(duration))
         print("    Press Ctrl+C to stop early\n")
@@ -255,6 +247,7 @@ class DualRobotTeleopSim:
                 
                 # # 3. Forward kinematics
                 # mujoco.mj_forward(self.mj_model, self.mj_data)
+                
 
                 # 3. Step physics forward (this applies forces, respects collisions)
                 mujoco.mj_step(self.mj_model, self.mj_data)
@@ -263,8 +256,8 @@ class DualRobotTeleopSim:
                 self.viewer.sync()
                 
                 # Optional: Print contact info when gripper is closing
-                if loop_count % 100 == 0:
-                    self._print_contact_debug()
+                #if loop_count % 100 == 0:
+                    #self._print_contact_debug()
                 
                 # Sleep to match timestep
                 time.sleep(self.mj_model.opt.timestep)
@@ -275,7 +268,6 @@ class DualRobotTeleopSim:
                 if step % 500 == 0:
                     elapsed = time.time() - start_time
                     remaining = duration - elapsed
-                    print(f"Time: {remaining:.1f}s | Loops: {loop_count}")
         
         except KeyboardInterrupt:
             print("\n✗ Interrupted by user!")
@@ -329,7 +321,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='Dual Robot Teleop to MuJoCo Sim')
     parser.add_argument('--left-ip', default='192.168.1.2', help='Left leader IP')
-    parser.add_argument('--right-ip', default='192.168.1.3', help='Right leader IP')
+    parser.add_argument('--right-ip', default='192.168.1.4', help='Right leader IP')
     parser.add_argument('--duration', type=float, default=60.0, help='Duration (seconds)')
     parser.add_argument('--no-home', action='store_true', help='Skip home position')
     

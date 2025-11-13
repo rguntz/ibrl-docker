@@ -62,7 +62,7 @@ def run(cfg: MainConfig, policy):
     cfg_dict = yaml.safe_load(open(cfg.cfg_path, "r"))
 
     if policy is None:
-        if cfg.dataset.use_state:
+        if cfg.dataset.use_state: # Not our case
             policy = StateBcPolicy(dataset.obs_shape, dataset.action_dim, cfg.state_policy)
         else:
             policy = BcPolicy(
