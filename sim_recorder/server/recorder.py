@@ -9,6 +9,8 @@ from pathlib import Path
 import json
 from typing import Optional, Dict, List
 from datetime import datetime
+import h5py
+
 
 import logging
 
@@ -100,7 +102,7 @@ class Recorder:
             self._recording_thread.join()
         
         # Save episode
-        episode_path = self._save_episode()
+        episode_path = self._save_episode_hdf5()
         
         print(f"✅ RECORDING STOPPED: {len(self.current_episode_data['observations'])} steps")
         
@@ -158,54 +160,61 @@ class Recorder:
             if sleep_time > 0:
                 time.sleep(sleep_time)
     
-    def _save_episode(self) -> Path:
-        """Save episode to disk"""
-        episode_dir = self.base_path / self.current_episode_data['name']
-        episode_dir.mkdir(parents=True, exist_ok=True)
-        print("we are saving the episode in the direction :", episode_dir)
 
-        # Convert observations list to numpy arrays
-        num_steps = len(self.current_episode_data['observations'])
-        
-        # Get camera names from first observation
-        if num_steps > 0:
-            cam_names = list(self.current_episode_data['observations'][0].keys())
+        def _save_episode_hdf5(self, dataset_path="dataset.hdf5"):
+            """
+            Save the current episode in robomimic-compatible HDF5 format.
+            Each episode is stored as a group: data/demo_i/
+            """
+            dataset_path = Path(dataset_path)
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # Build observation dict
-            obs_dict = {}
-            for cam_name in cam_names:
-                cam_images = [obs[cam_name] for obs in self.current_episode_data['observations']]
-                obs_dict[cam_name] = np.array(cam_images)
-            
-            # Save observations
-            np.savez_compressed(episode_dir / 'observations.npz', **obs_dict)
-            
-            # Save actions
-            actions_array = np.array(self.current_episode_data['actions'])
-            np.save(episode_dir / 'actions.npy', actions_array)
-            
-            # Save full robot states (qpos, qvel) into a single compressed file
-            qpos_array = np.array(self.current_episode_data['qpos'])
-            qvel_array = np.array(self.current_episode_data['qvel'])
-            np.savez_compressed(episode_dir / 'states.npz', qpos=qpos_array, qvel=qvel_array)
-            
-            # Save metadata
-            metadata = {
-                'episode_name': self.current_episode_data['name'],
-                'num_steps': num_steps,
-                'start_time': self.current_episode_data['start_time'],
-                'end_time': time.time(),
-                'duration': time.time() - self.current_episode_data['start_time'],
-                'fps': self.fps,
-                'cameras': cam_names,
-                'states_saved': True,
-                'state_shape': list(qpos_array.shape[1:]) if qpos_array.ndim > 1 else []
-            }
-            
-            with open(episode_dir / 'meta.json', 'w') as f:
-                json.dump(metadata, f, indent=2)
-        
-        return episode_dir
+            mode = "a"  # append mode so multiple episodes can be saved
+            with h5py.File(dataset_path, mode) as f:
+                # Create the /data group if not exists
+                if "data" not in f:
+                    data_group = f.create_group("data")
+                    # Save env_args attribute (robomimic expects this)
+                    env_args = {
+                        "env_name": "TrossenLift",
+                        "env_kwargs": {
+                            "robots": ["panda"],
+                            "controller_configs": {"control_delta": True},
+                        }
+                    }
+                    f["data"].attrs["env_args"] = json.dumps(env_args)
+                else:
+                    data_group = f["data"]
+                
+                # Determine episode index
+                demo_id = len(data_group)
+                demo_name = f"demo_{demo_id}"
+                demo_group = data_group.create_group(demo_name)
+                
+                # Save actions
+                actions_array = np.array(self.current_episode_data["actions"], dtype=np.float32)
+                demo_group.create_dataset("actions", data=actions_array)
+                
+                # Optionally save dummy rewards
+                rewards = np.zeros(len(actions_array), dtype=np.float32)
+                demo_group.create_dataset("rewards", data=rewards)
+                
+                # Save observations
+                obs_group = demo_group.create_group("obs")
+                
+                # Save cameras
+                first_obs = self.current_episode_data["observations"][0]
+                for cam_name in first_obs.keys():
+                    cam_images = [obs[cam_name] for obs in self.current_episode_data["observations"]]
+                    cam_array = np.stack(cam_images, axis=0).astype(np.uint8)
+                    obs_group.create_dataset(f"{cam_name}_image", data=cam_array, compression="gzip")
+                
+                # Save proprioception
+                qpos_array = np.array(self.current_episode_data["qpos"], dtype=np.float32)
+                obs_group.create_dataset("prop", data=qpos_array)
+                
+                print(f"💾 Saved {demo_name} to {dataset_path}")
+
     
     def list_episodes(self) -> List[Dict]:
         """List all recorded episodes"""
