@@ -38,6 +38,7 @@ from trossen_arm_mujoco.utils import (
     get_observation_base,
     make_sim_env,
     plot_observation_images,
+    sample_box_pose, 
 )
 
 
@@ -119,7 +120,7 @@ class TrossenAIStationaryTask(base.Task):
         :return: The joint positions.
         """
         position = physics.data.qpos.copy()
-        return position[:16] # 6 revolute joints +  2 gripper joints. 
+        return position[:16]
 
     def get_velocity(self, physics: Physics) -> np.ndarray:
         """
@@ -186,9 +187,15 @@ class TransferCubeTask(TrossenAIStationaryTask):
         # TODO Notice: this function does not randomize the env configuration. Instead, set
         # BOX_POSE from outside reset qpos, control and box position
         with physics.reset_context():
+            # Reset the arm pose
             physics.named.data.qpos[:16] = START_ARM_POSE
-            assert BOX_POSE[0] is not None
-            physics.named.data.qpos[-7:] = BOX_POSE[0]
+
+            # Randomize or sample the cube’s initial position
+            cube_pose = sample_box_pose()
+            print("new cube spawned")
+            box_start_idx = physics.model.name2id("red_box_joint", "joint")
+            np.copyto(physics.data.qpos[box_start_idx : box_start_idx + 7], cube_pose)
+
 
         super().initialize_episode(physics)
 
@@ -261,6 +268,7 @@ def test_sim_teleop():
     for t in range(1000):
         action = np.random.uniform(-np.pi, np.pi, 16)
         ts = env.step(action)
+        print("ts : ", ts)
         episode.append(ts)
 
         plt_imgs[0].set_data(ts.observation["images"]["cam_high"])
