@@ -8,33 +8,33 @@ import common_utils
 
 #from dm_control import suite
 from trossen_arm_mujoco.utils import make_sim_env
-from trossen_arm_mujoco.ee_sim_env import TransferCubeEETask
+from trossen_arm_mujoco.sim_env import TransferCubeTask
 from trossen_arm_mujoco.ee_sim_env import plot_observation_images, set_observation_images
 from matplotlib import pyplot as plt
 
 
 # Camera configurations for different tasks
 GOOD_CAMERAS = {
-    "TransferCubeEETask": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
+    "TransferCubeTask": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
 }
 
 DEFAULT_CAMERA = "cam_high"
 
 
 # State keys for observation
-DEFAULT_STATE_KEYS = ["qpos", "qvel", "env_state", "mocap_pose_left", "mocap_pose_right", "gripper_ctrl"]
+DEFAULT_STATE_KEYS = ["qpos", "qvel", "env_state"]
 STATE_KEYS = {
-    "TransferCubeEETask": DEFAULT_STATE_KEYS,
+    "TransferCubeTask": DEFAULT_STATE_KEYS,
 }
 
-# State shape: qpos(16) + qvel(16) + env_state(7) + mocap_left(7) + mocap_right(7) + gripper_ctrl(2) = 55
+# State shape: qpos(16) + qvel(16) + env_state(7) = 39
 STATE_SHAPE = {
-    "TransferCubeEETask": (55,),
+    "TransferCubeTask": (39,),
 }
 
-# Proprioceptive keys: mocap poses + gripper control
-PROP_KEYS = ["mocap_pose_left", "mocap_pose_right", "gripper_ctrl"]
-PROP_DIM = 16  # mocap_left(7) + mocap_right(7) + gripper_ctrl(2) = 16
+# Proprioceptive keys: qpos (16) and qvel(16). 
+PROP_KEYS = ["qpos", "qvel"]
+PROP_DIM = 32  
 
 
 class PixelTrossen:
@@ -79,7 +79,7 @@ class PixelTrossen:
         
         # Map environment names to task classes
         task_map = {
-            "TransferCubeEETask": TransferCubeEETask,
+            "TransferCubeTask": TransferCubeTask,
         }
         
         if env_name not in task_map:
@@ -89,7 +89,7 @@ class PixelTrossen:
         onscreen_render = True
         cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
         self.env = make_sim_env(
-            TransferCubeEETask,
+            TransferCubeTask,
             task_name="sim_transfer_cube",
             onscreen_render=onscreen_render,
             cam_list=cam_list,
@@ -112,9 +112,9 @@ class PixelTrossen:
         if self.rl_image_size != self.image_size:
             self.resize_transform = utils.get_rescale_transform((self.rl_image_size, self.rl_image_size))
 
-        # Action dimension: 23 (pos(3) + quat(4) + gripper(1)) * 2 arms + extra dim
-        # Based on ee_sim_env.py test, action is 23-dimensional
-        self.action_dim: int = 23
+        # Action dimension: 16 : 8 actions per arm. 
+        # Based on sim_env.py test, action is 16-dimensional
+        self.action_dim: int = 16
         self._observation_shape: tuple[int, ...] = (3 * obs_stack, rl_image_size, rl_image_size)
         self._state_shape: tuple[int] = (STATE_SHAPE[env_name][0] * state_stack,)
         self.prop_shape: tuple[int] = (PROP_DIM * prop_stack,)
@@ -283,7 +283,7 @@ class PixelTrossen:
             self.time_step += 1
             
             # Clip each action dimension to [-0.1, 0.1]
-            clipped_action = np.clip(actions[i], -0.1, 0.1) # clip action is done. 
+            clipped_action = np.clip(actions[i], -np.pi, np.pi) # clip action is done. 
             ts = self.env.step(clipped_action)
 
             obs = ts.observation

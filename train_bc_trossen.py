@@ -167,6 +167,7 @@ def evaluate(policy, dataset: RobomimicDataset, seed, num_game):
 def _load_model(weight_file, env: PixelTrossen, device, cfg: Optional[MainConfig] = None):
     if cfg is None:
         cfg_path = os.path.join(os.path.dirname(weight_file), f"cfg.yaml")
+        print("the config path is : ", cfg_path)
         cfg = pyrallis.load(MainConfig, open(cfg_path, "r"))  # type: ignore
 
     print("observation shape: ", env.observation_shape)
@@ -184,6 +185,7 @@ def _load_model(weight_file, env: PixelTrossen, device, cfg: Optional[MainConfig
 def load_model(weight_file, device, *, verbose=True):
     run_folder = os.path.dirname(weight_file)
     cfg_path = os.path.join(run_folder, f"cfg.yaml")
+    print("the config path is : ", cfg_path)
     if verbose:
         print(common_utils.wrap_ruler("config of loaded agent"))
         with open(cfg_path, "r") as f:

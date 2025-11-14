@@ -1,0 +1,3 @@
+Shape of cam_high_image robomimic: (118, 3, 96, 96)
+Shape of cam_high_image trossen: (238, 128, 128, 3)
+

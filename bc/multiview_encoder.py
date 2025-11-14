@@ -16,7 +16,7 @@ from networks.encoder import ResNetEncoder, ResNetEncoderConfig
                          ↓
                    Final fused vector h
 
-"""
+""" 
 @dataclass
 class MultiViewEncoderConfig:
     fuse_method: str = "cat"

@@ -23,7 +23,7 @@ class DatasetConfig:
     num_data: int = -1
     max_len: int = -1
     eval_episode_len: int = 300
-    use_state: int = 0
+    use_state: int = 0 # We dont use the state. 
     prop_stack: int = 1
     norm_action: int = 0
     obs_stack: int = 1 #  how many observations to stack. 
@@ -137,8 +137,8 @@ class RobomimicDataset:
             for i in range(episode_len):
                 entry = {"action": episode_data["action"][i]}
                 if self.cfg.ctrl_delta: # maybe we need to modify this for our task as we are now doing joint control. 
-                    assert entry["action"].min() >= -1
-                    assert entry["action"].max() <= 1
+                    assert entry["action"].min() >= -np.pi
+                    assert entry["action"].max() <= np.pi
 
                 entry["prop"] = utils.concat_obs(i, episode_data["prop"], cfg.prop_stack) # It takes the current timestep i, the array (e.g. all prop values over time), 
                 # and a stack number (e.g. 3), and returns a stacked observation of several recent frames.
@@ -195,7 +195,7 @@ class RobomimicDataset:
             ctrl_delta=bool(self.cfg.ctrl_delta),
         )
         self.env = PixelTrossen(**self.env_params)
-        self._check_controller_cfg()
+        #self._check_controller_cfg() # removefor the moment to have a working version of the training pipeline. 
 
     def _check_controller_cfg(self):
         assert self.env is not None

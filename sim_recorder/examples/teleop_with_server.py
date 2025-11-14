@@ -41,7 +41,7 @@ class TeleopWithServer:
                  server_url='http://localhost:5000',
                  visualize=True,
                  camera_names=None,
-                 camera_resolution=(128, 128)):
+                 camera_resolution=(128, 128)): #  here is where we set the resolution of the image. 
         
         self.leader_left_ip = leader_left_ip
         self.leader_right_ip = leader_right_ip
@@ -116,7 +116,7 @@ class TeleopWithServer:
         print(f"✓ MuJoCo sim loaded")
         
         # Setup renderer for cameras
-        self.renderer = mujoco.Renderer(self.mj_model, *self.camera_resolution)
+        self.renderer = mujoco.Renderer(self.mj_model, *self.camera_resolution) # Here we set the render to the camera resolution that we want. 
         
         # Check server connection
         print(f"🌐 Connecting to server at {self.server_url}...")
@@ -380,9 +380,9 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='MuJoCo Dual Robot Teleop with Server Recording')
-    parser.add_argument('--leader-left-ip', type=str, default='192.168.1.2',
+    parser.add_argument('--leader-left-ip', type=str, default='192.168.1.4',
                        help='Left leader robot IP address')
-    parser.add_argument('--leader-right-ip', type=str, default='192.168.1.4',
+    parser.add_argument('--leader-right-ip', type=str, default='192.168.1.2',
                        help='Right leader robot IP address')
     parser.add_argument('--server-url', type=str, default='http://localhost:5000',
                        help='Recording server URL')

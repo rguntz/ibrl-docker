@@ -22,7 +22,7 @@ import train_bc_trossen as train_bc
 class MainConfig(common_utils.RunConfig):
     seed: int = 1
     # env
-    task_name: str = "TransferCubeEETask"
+    task_name: str = "TransferCubeTask"
     episode_length: int = 200
     end_on_success: int = 1
     # render image in higher resolution for recording or using pretrained models
