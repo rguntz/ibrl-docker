@@ -81,7 +81,7 @@ def get_observation_base(
 
 def make_sim_env(
     task_class: base.Task,
-    xml_file: str = "trossen_ai_scene.xml",
+    xml_file: str = "trossen_ai_scene_joint.xml",
     task_name: str = "sim_transfer_cube",
     onscreen_render: bool = False,
     cam_list: list[str] = [],
@@ -100,6 +100,7 @@ def make_sim_env(
     :return: The simulated robot environment.
     """
     if "sim_transfer_cube" in task_name:
+        print("the xml file is : ", xml_file)
         assets_path = os.path.join(ASSETS_DIR, xml_file)
         physics = mujoco.Physics.from_xml_path(assets_path)
         task = task_class(

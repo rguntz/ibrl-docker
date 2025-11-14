@@ -61,7 +61,7 @@ class TrossenAIStationaryEETask(base.Task):
         self.cam_list = cam_list
         if self.cam_list == []:
             self.cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-
+    
     def before_step(self, action: np.ndarray, physics: Physics) -> None:
         """
         Apply the action to the robotic arms before stepping the simulation.

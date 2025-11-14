@@ -268,8 +268,14 @@ def test_sim_teleop():
     for t in range(1000):
         action = np.random.uniform(-np.pi, np.pi, 16)
         ts = env.step(action)
-        print("ts : ", ts)
         episode.append(ts)
+
+        obs = ts.observation
+        images = obs["images"]
+        cam_high = images["cam_high"]
+        print("cam high display size : ", cam_high.shape)
+
+
 
         plt_imgs[0].set_data(ts.observation["images"]["cam_high"])
         plt_imgs[1].set_data(ts.observation["images"]["cam_low"])

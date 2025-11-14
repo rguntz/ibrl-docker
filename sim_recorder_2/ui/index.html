@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SERL Recorder</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SERL Data Recorder</h1>
+            <div class="status" id="status">
+                <span class="status-indicator" id="status-indicator"></span>
+                <span id="status-text">Idle</span>
+                <span id="warmup-status" class="warmup-status" style="display:none;">(Warm-up in progress...)</span>
+            </div>
+        </header>
+
+        <div class="main-grid">
+            <!-- Controls -->
+            <section class="card controls">
+                <h2>Recording Controls</h2>
+                <div class="control-group">
+                    <input type="text" id="episode-name" placeholder="Episode name (auto-generated)" />
+                    <input type="number" id="fps" placeholder="FPS" value="15" min="1" max="60" />
+                </div>
+                <div class="button-group">
+                    <button id="warmup-btn" class="btn btn-warmup" onclick="startWarmup()">
+                        Start Warm-up
+                    </button>
+                    <button id="start-btn" class="btn btn-start" onclick="startRecording()" disabled>
+                        Start Recording
+                    </button>
+                    <button id="stop-btn" class="btn btn-stop" onclick="stopRecording()" disabled>
+                        Stop Recording
+                    </button>
+                </div>
+                <div id="recording-info" class="recording-info" style="display:none;">
+                    <p><strong>Episode:</strong> <span id="current-episode"></span></p>
+                    <p><strong>Steps:</strong> <span id="num-steps">0</span></p>
+                </div>
+            </section>
+
+            <!-- Camera Views -->
+            <section class="card cameras">
+                <h2>Camera Streams</h2>
+                <div id="camera-grid" class="camera-grid">
+                    <!-- Camera views will be dynamically added here -->
+                </div>
+            </section>
+
+            <!-- Episodes List -->
+            <section class="card episodes">
+                <h2>Recorded Episodes</h2>
+                <button class="btn btn-secondary" onclick="loadEpisodes()">Refresh</button>
+                <div id="episodes-list" class="episodes-list">
+                    <!-- Episodes will be loaded here -->
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>
