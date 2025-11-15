@@ -11,7 +11,7 @@ import common_utils
 from bc.dataset_trossen import DatasetConfig, RobomimicDataset
 from bc.bc_policy import StateBcPolicy, StateBcPolicyConfig
 from bc.bc_policy import BcPolicy, BcPolicyConfig
-#from evaluate import run_eval_mp
+from evaluate import run_eval_mp
 #from env.robosuite_wrapper import PixelRobosuite
 from env.trossen_wrapper import PixelTrossen
 
@@ -63,7 +63,8 @@ def run(cfg: MainConfig, policy):
         print(f.read(), end="")
     cfg_dict = yaml.safe_load(open(cfg.cfg_path, "r"))
 
-    if policy is None:
+    if policy is None: # this is out case. 
+        print("the policy is none") 
         if cfg.dataset.use_state: # Not our case
             policy = StateBcPolicy(dataset.obs_shape, dataset.action_dim, cfg.state_policy)
         else:
@@ -76,8 +77,8 @@ def run(cfg: MainConfig, policy):
             )
 
     policy = policy.to("cuda")
-    print(common_utils.wrap_ruler("policy weights"))
-    print(policy)
+    #print(common_utils.wrap_ruler("policy weights"))
+    #print(policy)
 
     common_utils.count_parameters(policy)
     if cfg.weight_decay == 0:
@@ -127,7 +128,7 @@ def run(cfg: MainConfig, policy):
             saved = saver.save(policy.state_dict(), epoch, save_latest=True)
             if cfg.save_per > 0 and (epoch + 1) % cfg.save_per == 0:
                 saver.save(policy.state_dict(), epoch, force_save_name=f"epoch{epoch+1}")
-        else:
+        else: # we are intering this loop for us. 
             with stopwatch.time("eval"):
                 seed = epoch * cfg.num_eval_episode + 1
                 scores = evaluate(policy, dataset, seed=seed, num_game=cfg.num_eval_episode)
