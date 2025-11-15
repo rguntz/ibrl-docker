@@ -22,7 +22,7 @@ class DatasetConfig:
     rl_camera: str = "robot0_eye_in_hand"
     num_data: int = -1
     max_len: int = -1
-    eval_episode_len: int = 300
+    eval_episode_len: int = 2000
     use_state: int = 0 # We dont use the state. 
     prop_stack: int = 1
     norm_action: int = 0

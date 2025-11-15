@@ -207,9 +207,15 @@ class Recorder:
             obs_group = demo_group.create_group("obs")
             first_obs = self.current_episode_data["observations"][0]
             for cam_name in first_obs.keys():
+
                 cam_images = [obs[cam_name] for obs in self.current_episode_data["observations"]]
                 cam_array = np.stack(cam_images, axis=0).astype(np.uint8)
+
+                # Reorder image axes (T, H, W, C) → (T, C, H, W) => for the specific format of the ibrl paper. 
+                cam_array = np.transpose(cam_array, (0, 3, 1, 2))
+
                 obs_group.create_dataset(f"{cam_name}_image", data=cam_array, compression="gzip")
+
             
             # Save proprioception
             qpos_array = np.array(self.current_episode_data["qpos"], dtype=np.float32)
@@ -223,27 +229,63 @@ class Recorder:
 
 
     def list_episodes(self) -> List[Dict]:
-        """List all recorded episodes"""
+        """List all recorded episodes from HDF5 dataset"""
         episodes = []
-        for episode_dir in sorted(self.base_path.iterdir()):
-            if episode_dir.is_dir() and (episode_dir / 'meta.json').exists():
-                with open(episode_dir / 'meta.json') as f:
-                    meta = json.load(f)
-                episodes.append({
-                    'id': episode_dir.name,
-                    'name': meta.get('episode_name', episode_dir.name),
-                    'num_steps': meta.get('num_steps', 0),
-                    'duration': meta.get('duration', 0),
-                    'path': str(episode_dir)
-                })
+        dataset_path = Path("data/dataset.hdf5")
+        
+        if not dataset_path.exists():
+            return episodes
+        
+        try:
+            with h5py.File(dataset_path, "r") as f:
+                if "data" not in f:
+                    return episodes
+                
+                data_group = f["data"]
+                for demo_name in sorted(data_group.keys()):
+                    demo_group = data_group[demo_name]
+                    
+                    # Get number of steps from actions dataset
+                    num_steps = len(demo_group.get('actions', [])) if 'actions' in demo_group else 0
+                    
+                    episodes.append({
+                        'id': demo_name,
+                        'name': demo_name,
+                        'num_steps': num_steps,
+                        'duration': num_steps / 15,  # Assuming 15 FPS default
+                        'path': str(dataset_path)
+                    })
+        except Exception as e:
+            print(f"⚠️  Error reading episodes from HDF5: {e}")
+        
         return episodes
     
     def delete_episode(self, episode_id: str) -> bool:
-        """Delete an episode"""
-        episode_dir = self.base_path / episode_id
-        if episode_dir.exists():
-            import shutil
-            shutil.rmtree(episode_dir)
-            print(f"✗ Deleted episode: {episode_id}")
-            return True
-        return False
+        """Delete an episode from HDF5 dataset"""
+        dataset_path = Path("data/dataset.hdf5")
+        
+        if not dataset_path.exists():
+            print(f"⚠️  Dataset file not found: {dataset_path}")
+            return False
+        
+        try:
+            with h5py.File(dataset_path, "r+") as f:
+                if "data" not in f:
+                    print(f"⚠️  No 'data' group in HDF5 file")
+                    return False
+                
+                data_group = f["data"]
+                
+                # episode_id should be the demo_name (e.g., "demo_0")
+                if episode_id not in data_group:
+                    print(f"⚠️  Episode '{episode_id}' not found in HDF5 file")
+                    return False
+                
+                # Delete the demo group
+                del data_group[episode_id]
+                print(f"✗ Deleted episode: {episode_id} from HDF5")
+                return True
+                
+        except Exception as e:
+            print(f"❌ Error deleting episode '{episode_id}': {e}")
+            return False
