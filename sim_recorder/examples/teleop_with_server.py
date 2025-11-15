@@ -62,6 +62,8 @@ class TeleopWithServer:
         }
         
         self.camera_resolution = camera_resolution
+        # Track remote recording state so we can react to STOP events
+        self.prev_remote_recording = False
         
         # Robot drivers
         self.driver_left = None
@@ -124,6 +126,11 @@ class TeleopWithServer:
             response = requests.get(f"{self.server_url}/api/status", timeout=2)
             if response.status_code == 200:
                 print(f"✓ Server connected")
+                # Initialize remote recording state from server
+                try:
+                    self.prev_remote_recording = bool(response.json().get('recording', False))
+                except Exception:
+                    self.prev_remote_recording = False
             else:
                 print(f"⚠️  Server responded with status {response.status_code}")
         except Exception as e:
@@ -141,6 +148,96 @@ class TeleopWithServer:
         print(f"🔴 Click START in web UI to begin recording")
         print("="*60)
         return True
+    
+    def _randomize_cube(self):
+        """Randomize cube position, keep orientation fixed, zero velocities"""
+        try:
+            cube_joint_id = mujoco.mj_name2id(
+                self.mj_model,
+                mujoco.mjtObj.mjOBJ_JOINT,
+                "red_box_joint"
+            )
+            qpos_addr = self.mj_model.jnt_qposadr[cube_joint_id]
+            qvel_addr = self.mj_model.jnt_dofadr[cube_joint_id]
+
+            # -----------------------------
+            # Randomize position (x, y), fixed z
+            # -----------------------------
+            x = np.random.uniform(-0.1, 0.2)
+            y = np.random.uniform(-0.15, 0.15)
+            z = 0.0125
+
+            # -----------------------------
+            # Fixed orientation (identity quaternion)
+            # -----------------------------
+            # Orientation = [1, 0, 0, 0] = no rotation
+            quat = np.array([1.0, 0.0, 0.0, 0.0])
+
+            # Write full qpos for free joint: [x, y, z, qw, qx, qy, qz]
+            self.mj_data.qpos[qpos_addr:qpos_addr+7] = [x, y, z, *quat]
+
+            # -----------------------------
+            # Zero linear + angular velocity
+            # -----------------------------
+            self.mj_data.qvel[qvel_addr:qvel_addr+6] = 0.0
+
+            print(f"✓ Cube moved to [{x:.3f}, {y:.3f}, {z:.3f}], orientation fixed, speed reset")
+
+        except Exception as e:
+            print(f"Warning: Could not randomize cube: {e}")
+    
+    def move_robots_to_home(self, gripper_open=0.04):
+        """Move both leader robots and sim to home (arms zero, grippers open)"""
+        print("🏠 Moving both robots to HOME configuration (arms=0, gripper=open)...")
+        
+        # Home state for arms
+        home_arm = np.zeros(6)  # 6 arm joints
+        left_state = np.concatenate([home_arm, [gripper_open]])
+        right_state = np.concatenate([home_arm, [gripper_open]])
+        
+        # Switch leaders to position mode temporarily
+        self.driver_left.set_all_modes(trossen_arm.Mode.position)
+        self.driver_right.set_all_modes(trossen_arm.Mode.position)
+        
+        # Move real robots
+        self.driver_left.set_all_positions(left_state)
+        self.driver_right.set_all_positions(right_state)
+        
+        # Move MuJoCo simulation
+        # Left robot: ctrl 0-5 arm, 6-7 gripper
+        self.mj_data.ctrl[0:6] = 0.0
+        self.mj_data.ctrl[6] = gripper_open
+        self.mj_data.ctrl[7] = gripper_open
+        
+        # Right robot: ctrl 8-13 arm, 14-15 gripper
+        self.mj_data.ctrl[8:14] = 0.0
+        self.mj_data.ctrl[14] = gripper_open
+        self.mj_data.ctrl[15] = gripper_open
+
+        self._randomize_cube()
+        
+        # Step simulation to update scene
+        for _ in range(100):
+            mujoco.mj_step(self.mj_model, self.mj_data)
+
+        # After moving to home, make sure leaders are free to teleoperate again
+        try:
+            zero_efforts = np.zeros(7)
+            # Set both leaders back to external effort (free movement)
+            if self.driver_left is not None:
+                self.driver_left.set_all_modes(trossen_arm.Mode.external_effort)
+                self.driver_left.set_all_external_efforts(zero_efforts, 0.0, False)
+            if self.driver_right is not None:
+                self.driver_right.set_all_modes(trossen_arm.Mode.external_effort)
+                self.driver_right.set_all_external_efforts(zero_efforts, 0.0, False)
+            print("✓ Leaders set to external effort (free to teleoperate)")
+        except Exception as e:
+            print(f"⚠️  Failed to set leaders free after homing: {e}")
+
+        print("✓ Robots are now at HOME configuration (grippers open)")
+
+
+
     
     def capture_cameras(self):
         """Capture all camera images (mirror cam_high and cam_low across vertical axis)"""
@@ -216,6 +313,8 @@ class TeleopWithServer:
         """Main teleop loop with viewer"""
         if not self.initialize():
             return
+        
+        self.move_robots_to_home()
         
         print("\n🎮 Starting dual robot teleop control loop...")
         print("   Move both leader robots to control sim robots")
@@ -356,7 +455,25 @@ class TeleopWithServer:
         self.push_state_to_server(qpos, qvel, action) 
 
         # Both are pushed at the same moment so they correspond to the same image-state-action triplet. 
-        
+        # Check server recording status to detect STOP event
+        try:
+            resp = requests.get(f"{self.server_url}/api/status", timeout=0.2)
+            if resp.status_code == 200:
+                remote_rec = bool(resp.json().get('recording', False))
+                # If server just transitioned from recording->not-recording, move robots to home
+                if self.prev_remote_recording and not remote_rec:
+                    print("🎯 Detected remote STOP - moving robots to home...")
+                    try:
+                        self.move_robots_to_home()
+                    except Exception as e:
+                        print(f"⚠️  Failed to move robots to home after STOP: {e}")
+                self.prev_remote_recording = remote_rec
+        except requests.exceptions.Timeout:
+            # ignore short timeouts to avoid blocking teleop loop
+            pass
+        except Exception as e:
+            print(f"⚠️  Error checking server status: {e}")
+
         return True
     
     def cleanup(self):

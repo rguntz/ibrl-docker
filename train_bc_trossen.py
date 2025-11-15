@@ -48,7 +48,9 @@ class MainConfig(common_utils.RunConfig):
 
 
 def run(cfg: MainConfig, policy):
+    print("init the dataset : ")
     dataset = RobomimicDataset(cfg.dataset)
+    print("finished init dataset")
     if not cfg.dataset.real_data:
         cfg.task_name = dataset.cfg.task_name
         cfg.robots = dataset.cfg.robot
