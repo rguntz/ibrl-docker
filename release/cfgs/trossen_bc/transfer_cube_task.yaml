@@ -1,3 +1,7 @@
 dataset:
-  path: data/dataset_actions16.hdf5
+  path: data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5.hdf5
   rl_camera: "cam_high+cam_low+cam_left_wrist+cam_right_wrist"
+  prop_stack: 3
+policy:
+  use_prop: 1
+use_wb: 1

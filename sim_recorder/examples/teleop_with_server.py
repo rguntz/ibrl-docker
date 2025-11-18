@@ -164,7 +164,7 @@ class TeleopWithServer:
             # Randomize position (x, y), fixed z
             # -----------------------------
             x = np.random.uniform(-0.1, 0.2)
-            y = np.random.uniform(-0.15, 0.15)
+            y = np.random.uniform(-0.15, 0.10)
             z = 0.0125
 
             # -----------------------------
@@ -429,19 +429,22 @@ class TeleopWithServer:
         # Step simulation
         mujoco.mj_step(self.mj_model, self.mj_data)
         
-        # Get robot states from MuJoCo (for recording - both robots)
-        # Left robot: qpos[3:11] (skip cube, get 8 joints: 6 arm + 2 gripper)
-        left_qpos = self.mj_data.qpos[3:11].copy()
-        left_qvel = self.mj_data.qvel[3:11].copy()
+        # Get robot states from MuJoCo (for recording - both robots) => index 16 is the starting index of the box. 
+        left_qpos = self.mj_data.qpos[:8].copy()
+        left_qvel = self.mj_data.qvel[:8].copy()
+
+        print("left_qpos", left_qpos[1])
         
         # Right robot: qpos[11:19] (8 joints after left robot)
-        right_qpos = self.mj_data.qpos[11:19].copy()
-        right_qvel = self.mj_data.qvel[11:19].copy()
+        right_qpos = self.mj_data.qpos[8:16].copy()
+        right_qvel = self.mj_data.qvel[8:16].copy()
+
+        #print("right_qpos", right_qvel[6], right_qvel[7])
         
         # Combine for recording (16D state + 14D actions)
         qpos = np.concatenate([left_qpos, right_qpos])
         qvel = np.concatenate([left_qvel, right_qvel])
-        action = np.concatenate([left_state[:7], right_state[:7]])  # 14D total 
+        action = np.concatenate([left_state[:7], right_state[:7]])  # 16D total 
         # action is the left state which is what we read from the real robot. 
         
         # Capture cameras (every step)

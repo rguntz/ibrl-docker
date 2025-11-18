@@ -86,8 +86,8 @@ class PixelTrossen:
             raise ValueError(f"Unknown environment: {env_name}")
         
         # Create the Trossen environment
-        onscreen_render = True
         cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+        print("the onscee render is : , ", onscreen_render)
         self.env = make_sim_env(
             TransferCubeTask,
             task_name="sim_transfer_cube",
@@ -102,7 +102,6 @@ class PixelTrossen:
         self.env_reward_scale = env_reward_scale
         self.end_on_success = end_on_success
         self.use_state = use_state
-        print("the env name is : ", env_name)
         self.state_keys = STATE_KEYS[env_name]
         self.prop_keys = PROP_KEYS
         self.flip_image = flip_image
@@ -159,7 +158,7 @@ class PixelTrossen:
 
         # Extract proprioceptive information
         props = []
-        for key in self.prop_keys:
+        for key in self.prop_keys: # here we extract the prop keys from the simulator. 
             if key in obs:
                 props.append(obs[key])
         prop = torch.from_numpy(np.concatenate(props).astype(np.float32))

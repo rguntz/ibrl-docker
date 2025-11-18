@@ -63,6 +63,15 @@
     </body>
     <geom name="white_wall" pos="0 0.5 0.05" size="10 0.05 1" type="box" material="white_wall"/>
 
+    <body name="static_box" pos="0.0 0.22 0.02">
+        <geom name="table_box"
+              type="box"
+              size="0.1 0.1 0.15"
+              rgba="0 0 1 1"
+              friction="1 0.005 0.0001"/>
+    </body>
+
+
     <geom name="floor" size="20 20 0.05" type="plane" material="carpet" pos="0 0 -.75"/>
     <site name="worldref" pos="0 0 -0.75"/>
     <camera name="cam_high" pos="0 -0.303794 1.02524" euler="0 0 0.4363" resolution="1920 1080" mode="fixed"  focal="1.93e-3 1.93e-3" sensorsize="0.0037 0.0021"/>
