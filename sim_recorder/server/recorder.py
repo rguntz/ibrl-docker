@@ -11,6 +11,11 @@ from typing import Optional, Dict, List
 from datetime import datetime
 import h5py
 
+import os
+import cv2
+
+SAVE_DIR = "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder/server/data"
+
 
 import logging
 
@@ -111,6 +116,24 @@ class Recorder:
         
         return episode_path
     
+    def save_frame(self, frame, prefix="cam_high"):
+        """
+        Saves an image frame to SAVE_DIR with an incrementing filename.
+        Does not return anything.
+        """
+        os.makedirs(SAVE_DIR, exist_ok=True)
+
+        # Count existing images for filename increment
+        existing = [f for f in os.listdir(SAVE_DIR) 
+                    if f.startswith(prefix) and f.endswith(".png")]
+        next_id = len(existing)
+
+        filename = f"{prefix}_{next_id:05d}.png"
+        filepath = os.path.join(SAVE_DIR, filename)
+
+        # Save image (convert RGB -> BGR for cv2)
+        cv2.imwrite(filepath, frame[:, :, ::-1])
+    
     def _recording_loop(self):
         """Background thread that samples at FPS"""
         dt = 1.0 / self.fps
@@ -197,6 +220,7 @@ class Recorder:
             
             # Save actions
             actions_array = np.array(self.current_episode_data["actions"], dtype=np.float32)
+            
             demo_group.create_dataset("actions", data=actions_array)
             
             # Save dummy rewards
@@ -217,9 +241,14 @@ class Recorder:
                 obs_group.create_dataset(f"{cam_name}_image", data=cam_array, compression="gzip")
 
             
-            # Save proprioception
+            # Save proprioception: concatenate qpos and qvel
             qpos_array = np.array(self.current_episode_data["qpos"], dtype=np.float32)
-            obs_group.create_dataset("prop", data=qpos_array)
+            qvel_array = np.array(self.current_episode_data["qvel"], dtype=np.float32)
+
+            # Concatenate along last axis
+            prop_array = np.concatenate([qpos_array, qvel_array], axis=1)
+
+            obs_group.create_dataset("prop", data=prop_array)
             
             print(f"💾 Saved {demo_name} to {dataset_path}")
         

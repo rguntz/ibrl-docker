@@ -192,7 +192,6 @@ class TransferCubeTask(TrossenAIStationaryTask):
 
             # Randomize or sample the cube’s initial position
             cube_pose = sample_box_pose()
-            print("new cube spawned")
             box_start_idx = physics.model.name2id("red_box_joint", "joint")
             np.copyto(physics.data.qpos[box_start_idx : box_start_idx + 7], cube_pose)
 
@@ -265,12 +264,14 @@ def test_sim_teleop():
     # setup plotting
     plt_imgs = plot_observation_images(ts.observation, cam_list)
 
+
     for t in range(1000):
         action = np.random.uniform(-np.pi, np.pi, 16)
         ts = env.step(action)
         episode.append(ts)
 
         obs = ts.observation
+        print("obs keys : ", obs.keys())
         images = obs["images"]
         cam_high = images["cam_high"]
         print("cam high display size : ", cam_high.shape)

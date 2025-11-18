@@ -124,7 +124,7 @@ def run(cfg: MainConfig, policy):
         epoch_time = stopwatch.elapsed_time_since_reset
         stat["other/speed"].append(cfg.epoch_len / epoch_time)
 
-        if cfg.dataset.real_data:
+        if cfg.dataset.real_data: # normally not the case for us. 
             saved = saver.save(policy.state_dict(), epoch, save_latest=True)
             if cfg.save_per > 0 and (epoch + 1) % cfg.save_per == 0:
                 saver.save(policy.state_dict(), epoch, force_save_name=f"epoch{epoch+1}")
@@ -203,7 +203,7 @@ def load_model(weight_file, device, *, verbose=True):
         robots=cfg.robots,
         episode_length=cfg.dataset.eval_episode_len,
         reward_shaping=False,
-        image_size=cfg.image_size,
+        image_size=cfg.image_size,  
         rl_image_size=cfg.rl_image_size,
         camera_names=cfg.dataset.rl_cameras,
         rl_cameras=cfg.dataset.rl_cameras,
