@@ -6,6 +6,7 @@ import yaml
 import pyrallis
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 import common_utils
 from bc.dataset_trossen import DatasetConfig, RobomimicDataset
@@ -31,7 +32,7 @@ class MainConfig(common_utils.RunConfig):
     grad_clip: float = 5
     weight_decay: float = 0
     # eval
-    num_eval_episode: int = 50
+    num_eval_episode: int = 1
     # to be overwritten by run() to facilitate model loading
     task_name: str = ""
     robots: list[str] = field(default_factory=lambda: [])
@@ -98,6 +99,7 @@ def run(cfg: MainConfig, policy):
     )
 
     saver = common_utils.TopkSaver(cfg.save_dir, 2)
+    writer = SummaryWriter(log_dir=os.path.join(cfg.save_dir, "tensorboard"))
     stopwatch = common_utils.Stopwatch()
     best_score = 0
     optim_step = 0
@@ -105,6 +107,13 @@ def run(cfg: MainConfig, policy):
         stopwatch.reset()
 
         for _ in range(cfg.epoch_len):
+
+            # every so we visualize what is happening : 
+            if optim_step % 500 == 0:
+                seed = epoch * cfg.num_eval_episode + 1
+                scores = evaluate(policy, dataset, seed=seed, num_game=cfg.num_eval_episode)
+            # finish evaluatig the episode
+
             with stopwatch.time("sample"):
                 batch = dataset.sample_bc(cfg.batch_size, "cuda:0")
 
@@ -120,6 +129,11 @@ def run(cfg: MainConfig, policy):
                 stat["train/loss"].append(loss.item())
                 stat["train/grad_norm"].append(grad_norm.item())
                 optim_step += 1
+                
+                # Log to TensorBoard every 1 steps
+                if optim_step % 1 == 0:
+                    writer.add_scalar("train/loss", loss.item(), optim_step)
+                    writer.add_scalar("train/grad_norm", grad_norm.item(), optim_step)
 
         epoch_time = stopwatch.elapsed_time_since_reset
         stat["other/speed"].append(cfg.epoch_len / epoch_time)
@@ -129,6 +143,7 @@ def run(cfg: MainConfig, policy):
             if cfg.save_per > 0 and (epoch + 1) % cfg.save_per == 0:
                 saver.save(policy.state_dict(), epoch, force_save_name=f"epoch{epoch+1}")
         else: # we are intering this loop for us. 
+            print("evaluation happening. ")
             with stopwatch.time("eval"):
                 seed = epoch * cfg.num_eval_episode + 1
                 scores = evaluate(policy, dataset, seed=seed, num_game=cfg.num_eval_episode)
@@ -157,13 +172,17 @@ def run(cfg: MainConfig, policy):
         stat["best_ckpt_score"].append(np.mean(scores))
         stat.summary(cfg.num_epoch)
 
+    # Close TensorBoard writer
+    writer.close()
+
     # quit!
     assert False
 
 
 def evaluate(policy, dataset: RobomimicDataset, seed, num_game):
     return run_eval_mp(
-        dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=10, verbose=False
+        dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=1, verbose=False
+        #  num_proc stands for number of processes. 
     )
 
 

@@ -437,6 +437,7 @@ class TeleopWithServer:
         left_qpos = self.mj_data.qpos[:8].copy()
         left_qvel = self.mj_data.qvel[:8].copy()
 
+        print("left_qpos", left_qpos[1])
         
         # Right robot: qpos[11:19] (8 joints after left robot)
         right_qpos = self.mj_data.qpos[8:16].copy()
@@ -449,8 +450,6 @@ class TeleopWithServer:
         qvel = np.concatenate([left_qvel, right_qvel])
         action = np.concatenate([left_state[:7], right_state[:7]])  # 16D total 
         # action is the left state which is what we read from the real robot. 
-        print("action left  : ", left_state)
-        print("action right : ", right_state)
         
         # Capture cameras (every step)
         images = self.capture_cameras()
@@ -495,9 +494,8 @@ class TeleopWithServer:
         for i_contact in range(self.mj_data.ncon): # gives the number of contact points currently detected in the simulation
             id_geom_1 = self.mj_data.contact[i_contact].geom1 # For each contact, grab the IDs of the two colliding geometries.
             id_geom_2 = self.mj_data.contact[i_contact].geom2
-            name_geom_1 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_1)
-            name_geom_2 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_2)
-
+            name_geom_1 = self.mj_model.id2name(id_geom_1, "geom") # Convert these geometry IDs to human-readable names, like "red_box",
+            name_geom_2 = self.mj_model.id2name(id_geom_2, "geom")
             contact_pair = (name_geom_1, name_geom_2)
             all_contact_pairs.append(contact_pair)
 
