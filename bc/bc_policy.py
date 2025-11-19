@@ -115,7 +115,7 @@ class StateBcPolicyConfig:
     layer_norm: int = 0
 
 
-class StateBcPolicy(nn.Module):
+class StateBcPolicy(nn.Module): # not the one we use. 
     def __init__(self, obs_shape, action_dim, cfg: StateBcPolicyConfig):
         super().__init__()
         assert len(obs_shape) == 1

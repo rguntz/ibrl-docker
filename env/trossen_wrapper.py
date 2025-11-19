@@ -65,7 +65,6 @@ class PixelTrossen:
         self._plt_fig = None
         self._plt_imgs = None
 
-        print("the camera is : ", camera_names)
         if camera_names is None:
             camera_names = [DEFAULT_CAMERA]
         if rl_cameras is None:
@@ -87,7 +86,6 @@ class PixelTrossen:
         
         # Create the Trossen environment
         cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-        print("the onscee render is : , ", onscreen_render)
         self.env = make_sim_env(
             TransferCubeTask,
             task_name="sim_transfer_cube",
@@ -281,9 +279,16 @@ class PixelTrossen:
         for i in range(num_action):
             self.time_step += 1
             
-            # Clip each action dimension to [-0.1, 0.1]
-            clipped_action = np.clip(actions[i], -np.pi, np.pi) # clip action is done. 
-            ts = self.env.step(clipped_action)
+            # Joint normalization constants : 
+            joint_mins = np.array([-np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+                                0, 0, -np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+                                0, 0])
+            joint_maxs = np.array([np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+                                0.04, 0.04, np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+                                0.04, 0.04])
+            
+            unnormalized_action = ((actions[i] + 1) / 2) * (joint_maxs - joint_mins) + joint_mins # we need to denormalize the action because the current one is between -1 and 1. 
+            ts = self.env.step(unnormalized_action)
 
             obs = ts.observation
             obs_display = obs.copy()
@@ -295,7 +300,7 @@ class PixelTrossen:
 
             #print("obs are : ", obs)
 
-            # Rendering : 
+            # Rendering : this is the code that renders the images. 
             if self.onscreen_render and self._plt_imgs is not None:
                 self._plt_imgs = set_observation_images(obs_display, self._plt_imgs, self.camera_names)
                 

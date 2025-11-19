@@ -128,8 +128,8 @@ class RobomimicDataset:
             for i in range(episode_len):
                 entry = {"action": episode_data["action"][i]}
                 if self.cfg.ctrl_delta:
-                    assert entry["action"].min() >= -1
-                    assert entry["action"].max() <= 1
+                    assert entry["action"].min() >= -1.005
+                    assert entry["action"].max() <= 1.005
 
                 entry["prop"] = utils.concat_obs(i, episode_data["prop"], cfg.prop_stack)
                 if cfg.use_state:

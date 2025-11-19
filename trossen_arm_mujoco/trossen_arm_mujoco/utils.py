@@ -100,7 +100,6 @@ def make_sim_env(
     :return: The simulated robot environment.
     """
     if "sim_transfer_cube" in task_name:
-        print("the xml file is : ", xml_file)
         assets_path = os.path.join(ASSETS_DIR, xml_file)
         physics = mujoco.Physics.from_xml_path(assets_path)
         task = task_class(
@@ -113,7 +112,6 @@ def make_sim_env(
     
     time_limit = max_steps * DT
 
-    print("max step inside : ", max_steps, " time limit is : ", time_limit)
 
     return control.Environment(
         physics,

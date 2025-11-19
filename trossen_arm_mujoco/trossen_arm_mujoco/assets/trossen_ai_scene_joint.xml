@@ -63,7 +63,7 @@
     </body>
     <geom name="white_wall" pos="0 0.5 0.05" size="10 0.05 1" type="box" material="white_wall"/>
 
-    <body name="static_box" pos="0.20 0.0 0.02">
+    <body name="static_box" pos="0.0 0.22 0.02">
         <geom name="table_box"
               type="box"
               size="0.1 0.1 0.15"

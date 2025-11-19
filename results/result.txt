@@ -1,0 +1,3 @@
+Results : 
+
+1. We have trained the model without limiting the training number of epochs. we see that the optimal nunber of steps is around 15 000. after that the loss fluctuates a lot and it is not worth training for more. 

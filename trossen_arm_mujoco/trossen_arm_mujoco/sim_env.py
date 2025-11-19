@@ -32,6 +32,8 @@ from dm_control.mujoco.engine import Physics
 from dm_control.suite import base
 import matplotlib.pyplot as plt
 import numpy as np
+import time
+
 
 from trossen_arm_mujoco.constants import BOX_POSE, START_ARM_POSE
 from trossen_arm_mujoco.utils import (
@@ -40,6 +42,11 @@ from trossen_arm_mujoco.utils import (
     plot_observation_images,
     sample_box_pose, 
 )
+
+import matplotlib.pyplot as plt
+import numpy as np
+import h5py
+import numpy as np
 
 
 class TrossenAIStationaryTask(base.Task):
@@ -250,6 +257,7 @@ class TransferCubeTask(TrossenAIStationaryTask):
         return reward
 
 
+
 def test_sim_teleop():
     """
     Runs a simulation to test teleoperation with the Trossen AI robotic arms.
@@ -267,6 +275,7 @@ def test_sim_teleop():
 
     for t in range(1000):
         action = np.random.uniform(-np.pi, np.pi, 16)
+        action[0:8] = np.zeros_like([action[0:8]])
         ts = env.step(action)
         episode.append(ts)
 
@@ -286,5 +295,51 @@ def test_sim_teleop():
         plt.pause(0.02)
 
 
+
+
+
+
+def load_demo_actions(hdf5_path, demo_name="demo_0"):
+    """
+    Loads the actions of a specific demo from an HDF5 dataset.
+    """
+    with h5py.File(hdf5_path, "r") as f:
+        actions = f["data"][demo_name]["actions"][:]
+    return actions
+
+def test_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
+    """
+    Runs a simulation using actions from an HDF5 dataset.
+    """
+    # Load actions
+    actions = load_demo_actions(dataset_path, demo_name)
+    
+    # Setup environment
+    cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+    env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml")
+    ts = env.reset()
+    episode = [ts]
+    
+    # Setup plotting
+    plt_imgs = plot_observation_images(ts.observation, cam_list)
+
+    for t in range(len(actions)):
+        action = actions[t]
+        ts = env.step(action)
+        episode.append(ts)
+
+        # Update images
+        plt_imgs[0].set_data(ts.observation["images"]["cam_high"])
+        plt_imgs[1].set_data(ts.observation["images"]["cam_low"])
+        plt_imgs[2].set_data(ts.observation["images"]["cam_left_wrist"])
+        plt_imgs[3].set_data(ts.observation["images"]["cam_right_wrist"])
+
+        plt.pause(0.5)
+
+
+
 if __name__ == "__main__":
-    test_sim_teleop()
+    #test_sim_teleop()
+    dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5_norm.hdf5"
+    demo_name = "demo_0"
+    test_sim_teleop_with_dataset(dataset_path, demo_name)
