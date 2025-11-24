@@ -79,6 +79,14 @@ Go inside the sim_recorder folder and refer to the README.md in this separate fo
 #### Process the data : 
 these steps are temporary as I am still looking for the best way to process the data of demonstrations before using it into the behavior cloning pipeline. Do these steps after having recorded the dataset using the sim_recorder folder. 
 
+```shell
+copy the dataset.hdf5 file from the sim_recorder file into data/cube_picking_and_placing
+cd data
+python extend_gripper.py
+python action_t_plus_k.py
+python normalize_actions.py
+```
+
 #### Train BC policy : 
 ```shell
 python python train_bc_trossen --config_path release/cfgs/trossen_bc/transfer_cube_task.yaml 
@@ -90,13 +98,6 @@ python train_rl_trossen.py --config_path release/cfgs/trossen/transfer_cube_task
 ```
 
 
-```shell
-copy the dataset.hdf5 file from the sim_recorder file into data/cube_picking_and_placing
-cd data
-python extend_gripper.py
-python action_t_plus_k.py
-python normalize_actions.py
-```
 
 
 
