@@ -3,6 +3,16 @@ import torch
 import torch.nn as nn
 from networks.encoder import ResNetEncoder, ResNetEncoderConfig
 
+import os 
+import torchvision
+
+training_folder = "debug_images/training"
+inference_folder = "debug_images/inference"
+
+# List of all cameras
+camera_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+
+
 """
      camera1 image ─┐
                      │   ┌──────────────────────────┐
@@ -48,7 +58,7 @@ class MultiViewEncoder(nn.Module):
             nn.Sequential(
                 nn.Linear(enc_repr_dim, cfg.feat_dim),
                 nn.LayerNorm(cfg.feat_dim),
-                nn.Dropout(cfg.dropout),
+                nn.Dropout(cfg.dropout),    
                 nn.ReLU(),
             )
             for _ in range(len(self.rl_cameras))
@@ -65,7 +75,8 @@ class MultiViewEncoder(nn.Module):
     def forward(self, obs: dict[str, torch.Tensor]):
         hs = []
         for i, camera in enumerate(self.rl_cameras):
-            x = obs[camera]
+            x = obs[camera]  # x: (B, C, H, W)
+
             if self.obs_horizon > 1:
                 x: torch.Tensor = x.unflatten(1, (-1, self.obs_shape[0]))
                 x = x.flatten(0, 1)

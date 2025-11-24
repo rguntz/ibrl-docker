@@ -232,13 +232,13 @@ class TransferCubeTask(TrossenAIStationaryTask):
             contact_pair = (name_geom_1, name_geom_2)
             all_contact_pairs.append(contact_pair)
 
-        touch_left_gripper = (
-            "red_box",
-            "left/gripper_follower_left",
-        ) in all_contact_pairs
         touch_right_gripper = (
             "red_box",
             "right/gripper_follower_left",
+        ) in all_contact_pairs
+        touch_blue_table = (
+            "red_box",
+            "table_box",
         ) in all_contact_pairs
         touch_table = ("red_box", "table") in all_contact_pairs
 
@@ -249,11 +249,10 @@ class TransferCubeTask(TrossenAIStationaryTask):
         if touch_right_gripper and not touch_table:
             reward = 2
         # attempted transfer
-        if touch_left_gripper:
-            reward = 3
-        # successful transfer
-        if touch_left_gripper and not touch_table:
-            reward = 4
+        if touch_right_gripper and touch_blue_table: 
+            return 3
+        if touch_blue_table and not touch_right_gripper: 
+            return 4
         return reward
 
 
@@ -318,6 +317,7 @@ def test_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
     cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
     env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml")
     ts = env.reset()
+    print("ts : ", ts)
     episode = [ts]
     
     # Setup plotting
@@ -337,9 +337,99 @@ def test_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
         plt.pause(0.5)
 
 
+import h5py
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.image import AxesImage
+
+import h5py
+import numpy as np
+
+def load_demo_actions_and_obs(dataset_path, demo_name="demo_0"):
+    """
+    Loads actions and observations from the HDF5 dataset for a specific demo.
+    
+    Returns:
+        actions: (T, 16) array of actions
+        obs_dict: dict with keys 'cam_high', 'cam_low', 'cam_left_wrist', 'cam_right_wrist', 'prop'
+                  images are (T, 128, 128, 3) after transposing channels
+    """
+    with h5py.File(dataset_path, "r") as f:
+        demo = f[f"data/{demo_name}"]
+        actions = demo["actions"][:]
+
+        obs_group = demo["obs"]
+        obs_dict = {
+            "cam_high": np.transpose(obs_group["cam_high_image"][:], (0, 2, 3, 1)),
+            "cam_low": np.transpose(obs_group["cam_low_image"][:], (0, 2, 3, 1)),
+            "cam_left_wrist": np.transpose(obs_group["cam_left_wrist_image"][:], (0, 2, 3, 1)),
+            "cam_right_wrist": np.transpose(obs_group["cam_right_wrist_image"][:], (0, 2, 3, 1)),
+            "prop": obs_group["prop"][:]
+        }
+    return actions, obs_dict
+
+
+
+def plotting_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
+    actions, dataset_obs = load_demo_actions_and_obs(dataset_path, demo_name)
+
+    cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+    env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml")
+    ts = env.reset()
+    episode = [ts]
+
+    # Initialize dataset plot with the first timestep (just for AxesImage objects)
+    plt.figure("Dataset Observations")
+    dataset_imgs = plot_observation_images(
+        {'images': {cam: dataset_obs[cam][0] for cam in cam_list}},  # just placeholder for init
+        cam_list
+    )
+
+    plt.ion()
+    plt.figure("Simulation Observations")
+    sim_imgs = plot_observation_images(ts.observation, cam_list)
+
+    for t in range(len(actions)):
+        # Denormalize and step
+        action = actions[t]
+
+        joint_mins = np.array([-np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+                                0, 0, -np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+                                0, 0])
+        joint_maxs = np.array([np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+                            0.04, 0.04, np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+                            0.04, 0.04])
+            
+        unnormalized_action = ((action + 1) / 2) * (joint_maxs - joint_mins) + joint_mins # we need to denormalize the action because the current one is between -1 and 1. 
+        ts = env.step(unnormalized_action)
+
+        episode.append(ts)
+
+        # Update simulation images
+        for i, cam in enumerate(cam_list):
+            sim_imgs[i].set_data(ts.observation["images"][cam])
+
+        # Update dataset images
+        for i, cam in enumerate(cam_list):
+            dataset_imgs[i].set_data(dataset_obs[cam][t])  # timestep t
+
+        print("prop sim :      ", ts.observation["qpos"], ts.observation["qvel"])
+        print("prop recorded : ", dataset_obs["prop"][t])
+
+        plt.pause(0.5)
+
+
+    
+
+    plt.show()
+
+
+
 
 if __name__ == "__main__":
     #test_sim_teleop()
-    dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5_norm.hdf5"
-    demo_name = "demo_0"
-    test_sim_teleop_with_dataset(dataset_path, demo_name)
+    dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5_normalized_minmax.hdf5"
+
+    for i in range(50) : 
+        demo_name = f"demo_{i}"
+        plotting_sim_teleop_with_dataset(dataset_path, demo_name)

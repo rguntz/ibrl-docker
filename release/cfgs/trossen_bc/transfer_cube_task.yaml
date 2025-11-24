@@ -1,7 +1,6 @@
 dataset:
-  path: data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5_normalized_minmax.hdf5
-  rl_camera: "cam_high+cam_low+cam_left_wrist+cam_right_wrist"
-  prop_stack: 3
+  path: data/cube_picking_and_placing/dataset_actions16_shifted_5_normalized_minmax.hdf5
+  rl_camera: "cam_high" #+cam_low+cam_left_wrist+cam_right_wrist"  
 policy:
   use_prop: 1
 use_wb: 0 

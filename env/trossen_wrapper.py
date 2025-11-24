@@ -11,7 +11,11 @@ from trossen_arm_mujoco.utils import make_sim_env
 from trossen_arm_mujoco.sim_env import TransferCubeTask
 from trossen_arm_mujoco.ee_sim_env import plot_observation_images, set_observation_images
 from matplotlib import pyplot as plt
+import time
 
+import os
+from PIL import Image
+import torch
 
 # Camera configurations for different tasks
 GOOD_CAMERAS = {
@@ -57,13 +61,17 @@ class PixelTrossen:
         state_stack=1,
         prop_stack=1,
         cond_action=0,
-        flip_image=True,
+        flip_image=False,
         ctrl_delta=True,
         record_sim_state: bool = False,
         onscreen_render: bool = True,
     ):
+        print("camera names inside trosser wrapper is : ", camera_names)
         self._plt_fig = None
         self._plt_imgs = None
+
+        self.max_reward_counter = 0
+        self.max_reward_target = 10
 
         if camera_names is None:
             camera_names = [DEFAULT_CAMERA]
@@ -157,8 +165,7 @@ class PixelTrossen:
         # Extract proprioceptive information
         props = []
         for key in self.prop_keys: # here we extract the prop keys from the simulator. 
-            if key in obs:
-                props.append(obs[key])
+            props.append(obs[key])
         prop = torch.from_numpy(np.concatenate(props).astype(np.float32))
         
         self.past_obses["prop"].append(prop) # here we gather the proprio sensors into one : mocap_pose, gripper_ctrl ...
@@ -170,19 +177,19 @@ class PixelTrossen:
         for camera_name in self.camera_names:                
             image_obs = obs[camera_name]
             if self.flip_image:
+                print("enters the flipping module : ")
                 image_obs = image_obs[::-1]
             image_obs = torch.from_numpy(image_obs.copy()).permute([2, 0, 1])
 
             # Keep high-res version for rendering
             high_res_images[camera_name] = image_obs
-            
             if camera_name not in self.rl_cameras:
                 continue
 
             rl_image_obs = image_obs
+
             if self.resize_transform is not None: 
-                rl_image_obs = self.resize_transform(rl_image_obs.to(self.device))
-            
+                rl_image_obs = self.resize_transform(rl_image_obs.to(self.device)) 
             self.past_obses[camera_name].append(rl_image_obs)
             rl_obs[camera_name] = utils.concat_obs(
                 len(self.past_obses[camera_name]) - 1,
@@ -218,19 +225,38 @@ class PixelTrossen:
 
         obs_display = obs.copy()
 
+        
+## ------------------------------------------------------##
+##      DEBUG 
+## ------------------------------------------------------##
+
+        img = obs["images"]['cam_high']  # Tensor: (3, H, W)
+
+        # Ensure directory exists
+        save_dir = "debug_images/sim_output"
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Create PIL image and save
+        image = Image.fromarray(img)
+        image.save(f"{save_dir}/sim_frame.png")
+
+## ------------------------------------------------------##
+## ------------------------------------------------------##
+        
 
         if 'images' in obs:
             for cam_name, cam_data in obs['images'].items():
                 obs[cam_name] = cam_data
             del obs['images']
-
         
         rl_obs, high_res_images = self._extract_images(obs)
+
 
         # Rendering : 
         if self.onscreen_render and self._plt_fig is None:
             self._plt_fig = plt.figure()
             self._plt_imgs = plot_observation_images(obs_display, self.camera_names)
+            time.sleep(0.3)
 
         if self.cond_action > 0:
             past_action = torch.from_numpy(np.stack(self.past_actions)).to(self.device)
@@ -293,22 +319,26 @@ class PixelTrossen:
             obs = ts.observation
             obs_display = obs.copy()
 
+            print("action : ", unnormalized_action, "state : ", obs["qpos"])
+
             if 'images' in obs:
                 for cam_name, cam_data in obs['images'].items():
                     obs[cam_name] = cam_data
                 del obs['images']
 
             #print("obs are : ", obs)
-
-            # Rendering : this is the code that renders the images. 
-            if self.onscreen_render and self._plt_imgs is not None:
-                self._plt_imgs = set_observation_images(obs_display, self._plt_imgs, self.camera_names)
+    
                 
             step_reward = ts.reward if ts.reward is not None else 0
             terminal = ts.last() # common in dm control. 
             # NOTE: extract images every step for potential obs stacking
             # this is not efficient
             curr_rl_obs, curr_high_res_images = self._extract_images(obs)
+
+            # Rendering : this is the code that renders the images. 
+            if self.onscreen_render and self._plt_imgs is not None:
+                self._plt_imgs = set_observation_images(obs_display, self._plt_imgs, self.camera_names)
+                time.sleep(0.1)
 
             if i == num_action - 1:
                 rl_obs.update(curr_rl_obs)
@@ -319,9 +349,13 @@ class PixelTrossen:
 
             # Check for success (max reward indicates successful transfer)
             if step_reward == self.env.task.max_reward:
+                self.max_reward_counter += 1
                 success = True
-                if self.end_on_success:
-                    terminal = True
+            else:
+                self.max_reward_counter = 0  # reset if we get a smaller reward
+
+            if self.end_on_success and self.max_reward_counter >= self.max_reward_target:
+                terminal = True
 
             if terminal:
                 break

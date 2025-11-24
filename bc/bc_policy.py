@@ -5,6 +5,12 @@ import torch.nn as nn
 import common_utils
 from common_utils import ibrl_utils as utils
 from bc.multiview_encoder import MultiViewEncoder, MultiViewEncoderConfig
+import os
+import torchvision
+
+training_folder = "debug_images/training"
+inference_folder = "debug_images/inference"
+camera_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
 
 
 def build_fc(in_dim, hidden_dim, action_dim, num_layer, layer_norm, dropout):
@@ -53,6 +59,8 @@ class BcPolicy(nn.Module):
             cfg=cfg.encoder,
         )
 
+        print("the obs shape is : ", obs_shape)
+
         self.policy = build_fc(
             in_dim=self.encoder.repr_dim,
             hidden_dim=cfg.hidden_dim,
@@ -67,12 +75,46 @@ class BcPolicy(nn.Module):
 
     def forward(self, obs: dict[str, torch.Tensor]):
         h = self.encoder(obs)
+
+
+        """
+        # ============================
+        # DEBUG: Save images to disk
+        # ============================
+
+        for i, camera in enumerate(self.rl_cameras):
+            x = obs[camera]  # x: (B, C, H, W)
+
+        if camera in camera_list:
+            batch_size = x.shape[0]
+
+            if batch_size > 1:  # training
+                print("training image saving")
+                folder = os.path.join(training_folder, camera)
+                os.makedirs(folder, exist_ok=True)
+                img = x[0].float() / 255.0 
+                print("training image size : ", img.shape)
+                filename = os.path.join(folder, f"{camera}_batch0.png")
+                torchvision.utils.save_image(img, filename)
+            else:  # batch size == 1 (inference)
+                print("inference image saving")
+                folder = os.path.join(inference_folder, camera)
+                os.makedirs(folder, exist_ok=True)
+                img = x[0].float() / 255.0 
+                print("inference image size", img.shape)
+                filename = os.path.join(folder, f"{camera}_single.png")
+                torchvision.utils.save_image(img, filename)
+        # ============================
+        """
+
+
         mu = self.policy(h)  # policy contains tanh
         return mu
 
     def act(self, obs: dict[str, torch.Tensor], *, eval_mode=True, cpu=True):
         assert eval_mode
         assert not self.training
+
 
         unsqueezed = False
         if obs[self.rl_cameras[0]].dim() == 3:
@@ -102,6 +144,61 @@ class BcPolicy(nn.Module):
             obs[camera] = self.aug(batch.obs[camera].float())
 
         pred_action = self.forward(obs)
+
+
+
+        ## -------------------------------------------
+        ## -------------------------------------------
+        output_dir = "/home/qtf5422/Desktop/AIRE/ibrl-docker/debug_images/optim_analysis"
+        os.makedirs(output_dir, exist_ok=True)
+
+        output_path = os.path.join(output_dir, "right_arm_diff.pt")
+
+        # 1) Load existing content if file exists, otherwise start a new list
+        if os.path.exists(output_path):
+            diff_history = torch.load(output_path)  # list of past diffs
+        else:
+            diff_history = []
+
+        # 2) Compute current diff
+        obs_first16 = obs["prop"][:, :16]
+        diff = pred_action - obs_first16
+
+        # 3) Append new diff
+        diff_history.append(diff)
+
+        # 4) Save updated list
+        torch.save(diff_history, output_path)
+
+        ## ------------------------------------------
+        ## ------------------------------------------
+
+
+
+        ## -------------------------------------------
+        ## Save pred_action[:, 8:16] history
+
+        output_dir = "/home/qtf5422/Desktop/AIRE/ibrl-docker/debug_images/optim_analysis"
+        os.makedirs(output_dir, exist_ok=True)
+
+        range_output_path = os.path.join(output_dir, "pred_action_8_16.pt")
+
+        # Load existing if available
+        if os.path.exists(range_output_path):
+            pred_8_16_history = torch.load(range_output_path)
+        else:
+            pred_8_16_history = []
+
+        # Extract and append current pred_action[8:16]
+        pred_8_16_history.append(pred_action[:, 8:16].detach().cpu())
+
+        # Save back
+        torch.save(pred_8_16_history, range_output_path)
+        ## -------------------------------------------
+        ## -------------------------------------------
+
+
+
         loss = nn.functional.mse_loss(pred_action, action, reduction="none")
         loss = loss.sum(1).mean(0)
         return loss

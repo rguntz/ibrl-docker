@@ -36,6 +36,7 @@ from dm_control.suite import base
 from matplotlib.image import AxesImage
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 from trossen_arm_mujoco.constants import ASSETS_DIR, DT
 
@@ -48,7 +49,7 @@ def sample_box_pose() -> np.ndarray:
         cube's position and orientation as a quaternion.
     """
     x_range = [-0.1, 0.2]
-    y_range = [-0.15, 0.15]
+    y_range = [-0.15, 0.025]
     z_range = [0.0125, 0.0125]
 
     ranges = np.vstack([x_range, y_range, z_range])
@@ -159,8 +160,9 @@ def plot_observation_images(observation: dict, cam_list: list[str]) -> list[Axes
             plt_imgs.append(axs[i].imshow(images[cam]))
             axs[i].set_title(titles.get(cam, cam))
 
-    for ax in axs.flat:
-        ax.axis("off")
+    #for ax in axs.flat:
+        #ax.axis("off")
+
 
     plt.ion()
     return plt_imgs

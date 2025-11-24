@@ -164,7 +164,7 @@ class TeleopWithServer:
             # Randomize position (x, y), fixed z
             # -----------------------------
             x = np.random.uniform(-0.1, 0.2)
-            y = np.random.uniform(-0.15, 0.10)
+            y = np.random.uniform(-0.15, 0.025)
             z = 0.0125
 
             # -----------------------------
@@ -247,12 +247,6 @@ class TeleopWithServer:
                 cam_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_CAMERA, cam_name)
                 self.renderer.update_scene(self.mj_data, camera=cam_id)
                 image = self.renderer.render()
-
-                # Mirror across vertical axis (left-right flip)
-                if cam_name in ('cam_high', 'cam_low'):
-                    # image shape is (H, W, C) so flip along axis=1 (width)
-                    image = np.flip(image, axis=1)
-                    # alternative: image = image[:, ::-1, :]
 
                 images[cam_name] = image.copy()
 
@@ -431,7 +425,6 @@ class TeleopWithServer:
 
         # Get the reward : 
         reward = self.get_reward()
-        print("reward : ", reward)
         
         # Get robot states from MuJoCo (for recording - both robots) => index 16 is the starting index of the box. 
         left_qpos = self.mj_data.qpos[:8].copy()
@@ -449,9 +442,8 @@ class TeleopWithServer:
         qvel = np.concatenate([left_qvel, right_qvel])
         action = np.concatenate([left_state[:7], right_state[:7]])  # 16D total 
         # action is the left state which is what we read from the real robot. 
-        print("action left  : ", left_state)
-        print("action right : ", right_state)
-        
+
+
         # Capture cameras (every step)
         images = self.capture_cameras()
         
@@ -499,15 +491,17 @@ class TeleopWithServer:
             name_geom_2 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_2)
 
             contact_pair = (name_geom_1, name_geom_2)
+            contact_pair_opposite = (name_geom_2, name_geom_1)
             all_contact_pairs.append(contact_pair)
-
-        touch_left_gripper = (
-            "red_box",
-            "left/gripper_follower_left",
-        ) in all_contact_pairs  
+            all_contact_pairs.append(contact_pair_opposite)
+ 
         touch_right_gripper = (
             "red_box",
             "right/gripper_follower_left",
+        ) in all_contact_pairs
+        touch_blue_table = (
+            "red_box",
+            "table_box",
         ) in all_contact_pairs
         touch_table = ("red_box", "table") in all_contact_pairs
 
@@ -518,11 +512,10 @@ class TeleopWithServer:
         if touch_right_gripper and not touch_table:
             reward = 2
         # attempted transfer
-        if touch_left_gripper:
-            reward = 3
-        # successful transfer
-        if touch_left_gripper and not touch_table:
-            reward = 4
+        if touch_right_gripper and touch_blue_table: 
+            return 3
+        if touch_blue_table and not touch_right_gripper: 
+            return 4
         return reward
     
     def cleanup(self):

@@ -11,6 +11,7 @@ if mp.get_start_method(allow_none=True) != "spawn":
 import common_utils
 from common_utils import ibrl_utils as utils
 from env.trossen_wrapper import PixelTrossen
+import os 
 
 
 class EvalProc:
@@ -29,12 +30,38 @@ class EvalProc:
         for seed in self.seeds:
             np.random.seed(seed)
             obs, _ = env.reset()
+
             success = False
             while not env.terminal:
                 # NOTE: obs["obs"] should be a cpu tensor because it
                 # is more complicated to move cuda tensors around.
                 self.send_queue.put((self.process_id, obs))
                 action = self.recv_queue.get()
+
+
+                ## -------------------------------------------
+                ## Save pred_action[:, 8:16] history
+
+                output_dir = "/home/qtf5422/Desktop/AIRE/ibrl-docker/debug_images/eval_analysis"
+                os.makedirs(output_dir, exist_ok=True)
+
+                range_output_path = os.path.join(output_dir, "pred_action_8_16.pt")
+
+                # Load existing if available
+                if os.path.exists(range_output_path):
+                    pred_8_16_history = torch.load(range_output_path)
+                else:
+                    pred_8_16_history = []
+
+                # Extract and append current pred_action[8:16]
+                pred_8_16_history.append(action[8:16].detach().cpu())
+
+                # Save back
+                torch.save(pred_8_16_history, range_output_path)
+                ## -------------------------------------------
+                ## -------------------------------------------
+
+
                 obs, _, _, success, _ = env.step(action)
 
             results[seed] = float(success)

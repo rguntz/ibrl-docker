@@ -32,7 +32,7 @@ class MainConfig(common_utils.RunConfig):
     grad_clip: float = 5
     weight_decay: float = 0
     # eval
-    num_eval_episode: int = 10
+    num_eval_episode: int = 1
     # to be overwritten by run() to facilitate model loading
     task_name: str = ""
     robots: list[str] = field(default_factory=lambda: [])
@@ -100,74 +100,13 @@ def run(cfg: MainConfig, policy):
 
     saver = common_utils.TopkSaver(cfg.save_dir, 2)
     writer = SummaryWriter(log_dir=os.path.join(cfg.save_dir, "tensorboard"))
-    stopwatch = common_utils.Stopwatch()
-    best_score = 0
-    optim_step = 0
-    for epoch in range(cfg.num_epoch):
-        stopwatch.reset()
-
-        for _ in range(cfg.epoch_len):
-            # finish evaluatig the episode
-
-            with stopwatch.time("sample"):
-                batch = dataset.sample_bc(cfg.batch_size, "cuda:0")
-
-            with stopwatch.time("train"):
-                loss = policy.loss(batch)
-
-                optim.zero_grad()
-                loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(  # type: ignore
-                    policy.parameters(), max_norm=cfg.grad_clip
-                )
-                optim.step()
-                stat["train/loss"].append(loss.item())
-                stat["train/grad_norm"].append(grad_norm.item())
-                optim_step += 1
-                
-                # Log to TensorBoard every 1 steps
-                if optim_step % 1 == 0:
-                    writer.add_scalar("train/loss", loss.item(), optim_step)
-                    writer.add_scalar("train/grad_norm", grad_norm.item(), optim_step)
-
-        epoch_time = stopwatch.elapsed_time_since_reset
-        stat["other/speed"].append(cfg.epoch_len / epoch_time)
-
-        if cfg.dataset.real_data: # normally not the case for us. 
-            saved = saver.save(policy.state_dict(), epoch, save_latest=True)
-            if cfg.save_per > 0 and (epoch + 1) % cfg.save_per == 0:
-                saver.save(policy.state_dict(), epoch, force_save_name=f"epoch{epoch+1}")
-        else: # we are intering this loop for us. 
-            print("evaluation happening. ")
-            with stopwatch.time("eval"):
-                score = 0
-                saved = saver.save(policy.state_dict(), score, save_latest=True)
-                seed = epoch * cfg.num_eval_episode + 1
-                scores = evaluate(policy, dataset, seed=seed, num_game=cfg.num_eval_episode)
-                score = float(np.mean(scores))
-                #saved = saver.save(policy.state_dict(), score, save_latest=True)
-
-            best_score = max(best_score, score)
-            stat["score"].append(score)
-            stat["score(best)"].append(best_score)
-
-            if (epoch + 1) % 5 == 0 or (epoch == cfg.num_epoch - 1):
-                # eval the last checkpoint
-                scores = evaluate(policy, dataset, num_game=100, seed=1)
-                stat["last_ckpt_score"].append(np.mean(scores))
-
-        stat.summary(epoch)
-        stopwatch.summary()
-        if saved:
-            print("model saved!")
-
-    if not cfg.dataset.real_data:
-        # eval the best performing model again
-        best_model = saver.get_best_model()
-        policy.load_state_dict(torch.load(best_model))
-        scores = evaluate(policy, dataset, num_game=100, seed=1)
-        stat["best_ckpt_score"].append(np.mean(scores))
-        stat.summary(cfg.num_epoch)
+   
+    # eval the best performing model again
+    best_model = "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run1/latest.pt"
+    policy.load_state_dict(torch.load(best_model))
+    scores = evaluate(policy, dataset, num_game=100, seed=1)
+    stat["best_ckpt_score"].append(np.mean(scores))
+    stat.summary(cfg.num_epoch)
 
     # Close TensorBoard writer
     writer.close()
