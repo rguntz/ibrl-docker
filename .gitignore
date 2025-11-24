@@ -13,3 +13,4 @@ data/
 release/model
 *.zip
 debug_images/optim_analysis/*.pt
+debug_images/optim_analysis/*.pt
