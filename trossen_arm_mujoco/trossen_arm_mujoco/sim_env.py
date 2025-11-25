@@ -276,6 +276,7 @@ def test_sim_teleop():
         action = np.random.uniform(-np.pi, np.pi, 16)
         action[0:8] = np.zeros_like([action[0:8]])
         ts = env.step(action)
+        print("ts : ", ts.observation["qpos"])
         episode.append(ts)
 
         obs = ts.observation
@@ -430,6 +431,11 @@ if __name__ == "__main__":
     #test_sim_teleop()
     dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5_normalized_minmax.hdf5"
 
+    test_sim_teleop()
+    
+    """
+
     for i in range(50) : 
         demo_name = f"demo_{i}"
         plotting_sim_teleop_with_dataset(dataset_path, demo_name)
+    """

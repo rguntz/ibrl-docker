@@ -39,6 +39,7 @@ class EvalProc:
                 action = self.recv_queue.get()
 
 
+                """
                 ## -------------------------------------------
                 ## Save pred_action[:, 8:16] history
 
@@ -60,8 +61,9 @@ class EvalProc:
                 torch.save(pred_8_16_history, range_output_path)
                 ## -------------------------------------------
                 ## -------------------------------------------
+                """
 
-
+                
                 obs, _, _, success, _ = env.step(action)
 
             results[seed] = float(success)

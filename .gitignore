@@ -4,7 +4,7 @@ exps
 common_utils/build/
 .vscode
 wandb
-data/
+data_outside_git/
 *.png
 *.pdf
 *.mp4
