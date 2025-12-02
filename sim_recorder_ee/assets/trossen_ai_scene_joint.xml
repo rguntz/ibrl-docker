@@ -1,7 +1,8 @@
 <mujoco model="trossen_ai_scene">
+
   <compiler meshdir="meshes" texturedir="meshes"/>
 
-  <include file="trossen_ai_bimanual.xml"/>
+  <include file="trossen_ai_joint.xml"/>
 
   <statistic center="0 -0.1 0.2" extent="0.6" meansize="0.05"/>
 
@@ -34,11 +35,11 @@
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
       markrgb="0.8 0.8 0.8" width="300" height="300"/>
     <texture type="2d" file="small_meta_table_diffuse.png"/>
-    <texture name="carpet_texture" type="2d" file="carpeteven.png"/>
-    <material name="carpet" texture="carpet_texture" texuniform="true" texrepeat="1 1" reflectance="0.0001"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
     <material name="table" rgba="0.15 0.15 0.15 1.0"/>
     <material name="metal" rgba="0.517 0.529 0.537 1"/>
+    <texture name="carpet_texture" type="2d" file="carpeteven.png"/>
+    <material name="carpet" texture="carpet_texture" texuniform="true" texrepeat="1 1" reflectance="0.0001"/>
     <material name="white_wall" rgba="0.9725 0.9608 0.8706 1"/>
   </asset>
 
@@ -48,12 +49,6 @@
     </default>
   </default>
 
-  <equality>
-      <weld body1="mocap_left" body2="left/link_6" solref="0.01 1" solimp=".25 .25 0.001" />
-      <weld body1="mocap_right" body2="right/link_6" solref="0.01 1" solimp=".25 .25 0.001" />
-  </equality>
-
-
   <worldbody>
     <light name="top_light_1" pos="0.5 0 1.5" dir="0 0 -1" diffuse="0.7 0.7 0.7" specular="0.3 0.3 0.3" directional="false"/>
 
@@ -61,32 +56,21 @@
     <light name="top_light_2" pos="-0.5 0 1.5" dir="0 0 -1" diffuse="0.7 0.7 0.7" specular="0.3 0.3 0.3" directional="false"/>
 
 
-    <body mocap="true" name="mocap_left" pos="-0.2062 -0.019 0.1835">
-        <site pos="0 0 0" size="0.0003 0.0003 0.03" type="box" name="mocap_left_site1" rgba="1 0 0 1"/>
-        <site pos="0 0 0" size="0.0003 0.03 0.0003" type="box" name="mocap_left_site2" rgba="1 0 0 1"/>
-        <site pos="0 0 0" size="0.0003 0.0003 0.03" type="box" name="mocap_left_site3" rgba="1 0 0 1"/>
-    </body>
-    <body mocap="true" name="mocap_right" pos="0.2062 -0.019 0.1835">
-        <site pos="0 0 0" size="0.0003 0.0003 0.03" type="box" name="mocap_right_site1" rgba="1 0 0 1"/>
-        <site pos="0 0 0" size="0.0003 0.03 0.0003" type="box" name="mocap_right_site2" rgba="1 0 0 1"/>
-        <site pos="0 0 0" size="0.0003 0.0003 0.03" type="box" name="mocap_right_site3" rgba="1 0 0 1"/>
-    </body>
-
-
     <body name="box" pos="0.0 0.0 0.0125">
         <joint name="red_box_joint" type="free" frictionloss="0.01" />
         <inertial pos="0 0 0" mass="0.05" diaginertia="0.002 0.002 0.002" />
-        <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="5.0 4 0.01" pos="0 0 0" size="0.0125 0.0125 0.0125" type="box" name="red_box" rgba="1 0 0 1" />
+        <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="5.0 4 0.01" pos="0 0 0" size="0.02 0.02 0.02" type="box" name="red_box" rgba="1 0 0 1" />
     </body>
     <geom name="white_wall" pos="0 0.5 0.05" size="10 0.05 1" type="box" material="white_wall"/>
 
     <body name="static_box" pos="0.0 0.22 0.02">
-      <geom name="table_box"
-            type="box"
-            size="0.1 0.1 0.15"
-            rgba="0 0 1 1"
-            friction="1 0.005 0.0001"/>
+        <geom name="table_box"
+              type="box"
+              size="0.1 0.1 0.15"
+              rgba="0 0 1 1"
+              friction="1 0.005 0.0001"/>
     </body>
+
 
     <geom name="floor" size="20 20 0.05" type="plane" material="carpet" pos="0 0 -.75"/>
     <site name="worldref" pos="0 0 -0.75"/>

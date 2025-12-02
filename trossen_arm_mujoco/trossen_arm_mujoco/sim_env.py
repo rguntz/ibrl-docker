@@ -98,9 +98,11 @@ class TrossenAIStationaryTask(base.Task):
                 full_right_gripper_action,
             ]
         )
+        self.counter += 1
         super().before_step(env_action, physics)
 
     def initialize_episode(self, physics: Physics) -> None:
+        self.counter = 0
         """
         Sets the state of the environment at the start of each episode.
 
@@ -183,7 +185,7 @@ class TransferCubeTask(TrossenAIStationaryTask):
             onscreen_render=onscreen_render,
             cam_list=cam_list,
         )
-        self.max_reward = 4
+        self.max_reward = 1
 
     def initialize_episode(self, physics: Physics) -> None:
         """
@@ -243,16 +245,16 @@ class TransferCubeTask(TrossenAIStationaryTask):
         touch_table = ("red_box", "table") in all_contact_pairs
 
         reward = 0
-        if touch_right_gripper:
-            reward = 1
+        #if touch_right_gripper:
+        #    reward = 1
         # lifted
-        if touch_right_gripper and not touch_table:
-            reward = 2
+        #if touch_right_gripper and not touch_table:
+        #    reward = 2
         # attempted transfer
-        if touch_right_gripper and touch_blue_table: 
-            return 3
+        #if touch_right_gripper and touch_blue_table: 
+        #    return 3
         if touch_blue_table and not touch_right_gripper: 
-            return 4
+            return 1
         return reward
 
 
@@ -265,27 +267,22 @@ def test_sim_teleop():
     """
     # setup the environment
     cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-    env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml")
+    env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml", max_steps = 20)
     ts = env.reset()
     episode = [ts]
     # setup plotting
     plt_imgs = plot_observation_images(ts.observation, cam_list)
 
+    time.sleep(19)
+
+
 
     for t in range(1000):
         action = np.random.uniform(-np.pi, np.pi, 16)
-        action[0:8] = np.zeros_like([action[0:8]])
+        action = np.zeros_like(action)
+        action[6:8] = 0.044
         ts = env.step(action)
-        print("ts : ", ts.observation["qpos"])
         episode.append(ts)
-
-        obs = ts.observation
-        print("obs keys : ", obs.keys())
-        images = obs["images"]
-        cam_high = images["cam_high"]
-        print("cam high display size : ", cam_high.shape)
-
-
 
         plt_imgs[0].set_data(ts.observation["images"]["cam_high"])
         plt_imgs[1].set_data(ts.observation["images"]["cam_low"])
@@ -318,7 +315,6 @@ def test_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
     cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
     env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml")
     ts = env.reset()
-    print("ts : ", ts)
     episode = [ts]
     
     # Setup plotting
@@ -365,13 +361,86 @@ def load_demo_actions_and_obs(dataset_path, demo_name="demo_0"):
             "cam_low": np.transpose(obs_group["cam_low_image"][:], (0, 2, 3, 1)),
             "cam_left_wrist": np.transpose(obs_group["cam_left_wrist_image"][:], (0, 2, 3, 1)),
             "cam_right_wrist": np.transpose(obs_group["cam_right_wrist_image"][:], (0, 2, 3, 1)),
-            "prop": obs_group["prop"][:]
+            "qpos": obs_group["qpos"][:], 
+            "qvel": obs_group["qvel"][:]
         }
     return actions, obs_dict
 
 
 
 def plotting_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
+
+    actions, dataset_obs = load_demo_actions_and_obs(dataset_path, demo_name)
+
+    dataset_path_unorm = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/dataset_200steps_actions16_delta_action.hdf5"
+    unorm_action, _ = load_demo_actions_and_obs(dataset_path_unorm, demo_name)
+
+    cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+    env = make_sim_env(TransferCubeTask, "trossen_ai_scene_joint.xml")
+    ts = env.reset()
+    for i in range(100): 
+        ts = env.step(dataset_obs["prop"][0, :16])
+    episode = [ts]
+
+    # Initialize dataset plot with the first timestep (just for AxesImage objects)
+    plt.figure("Dataset Observations")
+    dataset_imgs = plot_observation_images(
+        {'images': {cam: dataset_obs[cam][0] for cam in cam_list}},  # just placeholder for init
+        cam_list
+    )
+
+    plt.ion()
+    plt.figure("Simulation Observations")
+    sim_imgs = plot_observation_images(ts.observation, cam_list)
+
+    for t in range(len(actions)):
+
+        ## ---------------------------------
+        ## Newly implemented : delta control
+
+        joint_mins = np.array([-np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+                                0, 0, -np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+                                0, 0])
+        joint_maxs = np.array([np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+                            0.04, 0.04, np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+                            0.04, 0.04])
+
+        # 2. model output (joint delta)
+        model_delta = ((actions[t]  + 1) / 2) * (joint_maxs - joint_mins) + joint_mins # we need to denormalize the action because the current one is between -1 and 1.
+
+        # 4. compute next absolute positions
+        next_qpos = ts.observation["qpos"] + model_delta
+        next_qpos = dataset_obs["prop"][t, :16] + model_delta
+
+        # 5. clip to joint limits
+        next_qpos = np.clip(next_qpos, joint_mins, joint_maxs)
+
+        ## ---------------------------------
+
+        ts = env.step(next_qpos)
+        episode.append(ts)
+
+        # Update simulation images
+        for i, cam in enumerate(cam_list):
+            sim_imgs[i].set_data(ts.observation["images"][cam])
+
+        # Update dataset images
+        for i, cam in enumerate(cam_list):
+            dataset_imgs[i].set_data(dataset_obs[cam][t])  # timestep t
+
+
+        plt.pause(0.5)
+
+
+    
+
+    plt.show()
+
+
+
+
+
+def test_sim_teleop_with_dataset_joint_control(dataset_path, demo_name="demo_0"):
     actions, dataset_obs = load_demo_actions_and_obs(dataset_path, demo_name)
 
     cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
@@ -415,7 +484,7 @@ def plotting_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
             dataset_imgs[i].set_data(dataset_obs[cam][t])  # timestep t
 
         print("prop sim :      ", ts.observation["qpos"], ts.observation["qvel"])
-        print("prop recorded : ", dataset_obs["prop"][t])
+        print("prop recorded : ", dataset_obs["qpos"][t])
 
         plt.pause(0.5)
 
@@ -427,15 +496,14 @@ def plotting_sim_teleop_with_dataset(dataset_path, demo_name="demo_0"):
 
 
 
-if __name__ == "__main__":
-    #test_sim_teleop()
-    dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/dataset_200steps_actions16_shifted_5_normalized_minmax.hdf5"
 
+if __name__ == "__main__":
     test_sim_teleop()
-    
-    """
+    dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing/tresholded_reward/extended_gripper_dataset_wr_threshold_rewards_dones_shifted_gripper_clipped_clipped_norm_min_max_cut.hdf5"
+
+    #test_sim_teleop()
+
 
     for i in range(50) : 
         demo_name = f"demo_{i}"
-        plotting_sim_teleop_with_dataset(dataset_path, demo_name)
-    """
+        test_sim_teleop_with_dataset_joint_control(dataset_path, demo_name)

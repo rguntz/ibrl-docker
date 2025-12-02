@@ -13,25 +13,19 @@ import trossen_arm
 from pathlib import Path
 import requests
 import json
+from trossen_arm_mujoco.utils import make_sim_env
+from trossen_arm_mujoco.ee_sim_env import TransferCubeEETask
+from trossen_arm_mujoco.utils import (
+    get_observation_base,
+    make_sim_env,
+    plot_observation_images,
+    sample_box_pose,
+    set_observation_images,
+)
+import cv2
 
-# Path to MuJoCo XML
-XML_PATH_OPTIONS = [
-    Path(__file__).parent.parent / "assets" / "trossen_ai_scene_joint.xml",  # sim_recorder local copy
-    Path(__file__).parent.parent.parent / "trossen_sim" / "trossen_sim" / "envs" / "xmls" / "trossen_ai_scene_joint.xml",
-    Path(__file__).parent.parent.parent / "trossen_arm_mujoco" / "trossen_arm_mujoco" / "assets" / "trossen_ai_scene_joint.xml",
-]
-
-XML_PATH = None
-for path in XML_PATH_OPTIONS:
-    if path.exists():
-        XML_PATH = path
-        break
-
-if XML_PATH is None:
-    print(f"❌ ERROR: MuJoCo XML not found in any of these locations:")
-    for p in XML_PATH_OPTIONS:
-        print(f"   - {p}")
-    exit(1)
+import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 
 class TeleopWithServer:
@@ -107,19 +101,18 @@ class TeleopWithServer:
         print(f"✓ Both leaders connected")
         print(f"  Left: {num_joints_left} joints, Right: {num_joints_right} joints")
         
-        # Load MuJoCo model
-        print(f"🎮 Loading MuJoCo model: {XML_PATH.name}")
-        self.mj_model = mujoco.MjModel.from_xml_path(str(XML_PATH))
-        self.mj_data = mujoco.MjData(self.mj_model)
-        
-        # Get cube position
-        cube_pos = self.mj_data.qpos[:3]
-        print(f"✓ Cube at [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
-        print(f"✓ MuJoCo sim loaded")
-        
-        # Setup renderer for cameras
-        self.renderer = mujoco.Renderer(self.mj_model, *self.camera_resolution) # Here we set the render to the camera resolution that we want. 
-        
+        onscreen_render = True
+        self.cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+
+        # Create Mujoco env. 
+        self.env = make_sim_env(
+            TransferCubeEETask,
+            task_name="sim_transfer_cube",
+            onscreen_render=onscreen_render,
+            cam_list=self.cam_list,
+        )
+
+
         # Check server connection
         print(f"🌐 Connecting to server at {self.server_url}...")
         try:
@@ -148,45 +141,9 @@ class TeleopWithServer:
         print(f"🔴 Click START in web UI to begin recording")
         print("="*60)
         return True
+
     
-    def _randomize_cube(self):
-        """Randomize cube position, keep orientation fixed, zero velocities"""
-        try:
-            cube_joint_id = mujoco.mj_name2id(
-                self.mj_model,
-                mujoco.mjtObj.mjOBJ_JOINT,
-                "red_box_joint"
-            )
-            qpos_addr = self.mj_model.jnt_qposadr[cube_joint_id]
-            qvel_addr = self.mj_model.jnt_dofadr[cube_joint_id]
-
-            # -----------------------------
-            # Randomize position (x, y), fixed z
-            # -----------------------------
-            x = np.random.uniform(-0.1, 0.2)
-            y = np.random.uniform(-0.15, 0.025)
-            z = 0.0125
-
-            # -----------------------------
-            # Fixed orientation (identity quaternion)
-            # -----------------------------
-            # Orientation = [1, 0, 0, 0] = no rotation
-            quat = np.array([1.0, 0.0, 0.0, 0.0])
-
-            # Write full qpos for free joint: [x, y, z, qw, qx, qy, qz]
-            self.mj_data.qpos[qpos_addr:qpos_addr+7] = [x, y, z, *quat]
-
-            # -----------------------------
-            # Zero linear + angular velocity
-            # -----------------------------
-            self.mj_data.qvel[qvel_addr:qvel_addr+6] = 0.0
-
-            print(f"✓ Cube moved to [{x:.3f}, {y:.3f}, {z:.3f}], orientation fixed, speed reset")
-
-        except Exception as e:
-            print(f"Warning: Could not randomize cube: {e}")
-    
-    def move_robots_to_home(self, gripper_open=0.04):
+    def move_robots_to_home(self, gripper_open=0.044):
         """Move both leader robots and sim to home (arms zero, grippers open)"""
         print("🏠 Moving both robots to HOME configuration (arms=0, gripper=open)...")
         
@@ -203,22 +160,9 @@ class TeleopWithServer:
         self.driver_left.set_all_positions(left_state)
         self.driver_right.set_all_positions(right_state)
         
-        # Move MuJoCo simulation
-        # Left robot: ctrl 0-5 arm, 6-7 gripper
-        self.mj_data.ctrl[0:6] = 0.0
-        self.mj_data.ctrl[6] = gripper_open
-        self.mj_data.ctrl[7] = gripper_open
-        
-        # Right robot: ctrl 8-13 arm, 14-15 gripper
-        self.mj_data.ctrl[8:14] = 0.0
-        self.mj_data.ctrl[14] = gripper_open
-        self.mj_data.ctrl[15] = gripper_open
-
-        self._randomize_cube()
-        
-        # Step simulation to update scene
-        for _ in range(100):
-            mujoco.mj_step(self.mj_model, self.mj_data)
+        # Reset MuJoCo simulation (new cube spawned and position of arm set to 0, 0, 0, 0 ..., 0.044)
+        self.ts = self.env.reset()
+        self.plt_imgs = plot_observation_images(self.ts.observation, self.cam_list)
 
         # After moving to home, make sure leaders are free to teleoperate again
         try:
@@ -236,24 +180,20 @@ class TeleopWithServer:
 
         print("✓ Robots are now at HOME configuration (grippers open)")
 
-
-
     
     def capture_cameras(self):
-        """Capture all camera images (mirror cam_high and cam_low across vertical axis)"""
+        """Capture all camera images from self.ts and resize to server resolution"""
         images = {}
         for cam_name in self.camera_names:
             try:
-                cam_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_CAMERA, cam_name)
-                self.renderer.update_scene(self.mj_data, camera=cam_id)
-                image = self.renderer.render()
-
-                images[cam_name] = image.copy()
-
+                image = self.ts.observation['images'][cam_name]
+                # Resize to 128x128
+                resized = cv2.resize(image, self.camera_resolution, interpolation=cv2.INTER_AREA)
+                images[cam_name] = resized.copy()
             except Exception as e:
                 print(f"⚠️  Failed to capture {cam_name}: {e}")
-
         return images
+
 
     
     def push_frame_to_server(self, cam_name, image):
@@ -331,8 +271,7 @@ class TeleopWithServer:
         try:
             if self.visualize:
                 # Run with MuJoCo viewer
-                with mujoco.viewer.launch_passive(self.mj_model, self.mj_data) as viewer:
-                    self._run_teleop_loop(viewer)
+                self._run_teleop_loop()
             else:
                 # Run headless (no viewer)
                 self._run_teleop_loop_headless()
@@ -344,116 +283,154 @@ class TeleopWithServer:
             print("\n🛑 Stopping teleop...")
             self.cleanup()
     
-    def _run_teleop_loop(self, viewer):
+
+    def _run_teleop_loop(self):
         """Main teleop loop with viewer""" 
         print("teleop  starting")
         step_count = 0
         
-        while viewer.is_running():
+        while True:
             step_start = time.time()
             
-            if not self._teleop_step():
-                break
-            
-            # Update viewer
-            viewer.sync()
+            self._teleop_step()
             
             step_count += 1
             if step_count % 500 == 0:  # Log every 500 steps (~1 second at 500Hz)
                 elapsed = time.time() - step_start
                 print(f"✓ Step {step_count} (running at ~{1.0/elapsed:.0f} Hz)")
-            
-            # Sleep to match MuJoCo timestep (~0.002s = 500Hz) for smooth physics
-            time.sleep(self.mj_model.opt.timestep)
     
-    def _run_teleop_loop_headless(self):
-        """Main teleop loop without viewer (for web UI only)"""
-        step_count = 0
+
+    def quat_mul(self, q1, q2):
+        """Multiply two quaternions (w, x, y, z)."""
+        w1, x1, y1, z1 = q1
+        w2, x2, y2, z2 = q2
+        return np.array([
+            w1*w2 - x1*x2 - y1*y2 - z1*z2,
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2
+        ])
+
+    def quat_rotate(self, q, v):
+        """Rotate vector v by unit quaternion q (w, x, y, z)."""
+        # Convert vector to pure quaternion
+        vq = np.array([0.0, v[0], v[1], v[2]])
+        q_conj = np.array([q[0], -q[1], -q[2], -q[3]])
+        # q * v * q_conj
+        return self.quat_mul(self.quat_mul(q, vq), q_conj)[1:]
+
+    def transform_robot_to_world_frame_qwen(self, pos_robot, quat_robot, robot_name):
+        """
+        Transform end-effector pose from robot base frame to world frame.
         
-        try:
-            while True:  # Run until interrupted
-                step_start = time.time()
-                
-                if not self._teleop_step():
-                    break
-                
-                step_count += 1
-                if step_count % 500 == 0:  # Log every 500 steps (~1 second at 500Hz)
-                    elapsed = time.time() - step_start
-                    print(f"✓ Step {step_count} (running at ~{1.0/elapsed:.0f} Hz)")
-                
-                # Sleep to match MuJoCo timestep (~0.002s = 500Hz) for smooth physics
-                time.sleep(self.mj_model.opt.timestep)
-                
-        except KeyboardInterrupt:
-            print("\n⚠️  Headless loop interrupted")
-    
+        Args:
+            pos_robot (np.ndarray): (3,) position in robot's base frame.
+            quat_robot (np.ndarray): (4,) [w, x, y, z] orientation in robot's base frame.
+            robot_name (str): 'left' or 'right'
+        
+        Returns:
+            (world_pos, world_quat): both (3,) and (4,) arrays in world frame.
+        """
+        if robot_name == "left":
+            base_pos = np.array([-0.4575, -0.019, 0.02])
+            base_quat = np.array([1.0, 0.0, 0.0, 0.0])  # identity
+        elif robot_name == "right":
+            base_pos = np.array([0.4575, -0.019, 0.02])
+            base_quat = np.array([0.0, 0.0, 0.0, 1.0])  # 180° around Z
+        else:
+            raise ValueError("robot_name must be 'left' or 'right'")
+        
+        # Rotate end-effector position by base orientation
+        pos_world = base_pos + self.quat_rotate(base_quat, pos_robot)
+        
+        # Compose orientations: world = base_quat * quat_robot
+        quat_world = quat_robot
+
+        if robot_name == "right":
+            # Invert roll and pitch → equivalent to mirroring X and Y
+            # This can be done by conjugating the quaternion and flipping Z?
+            # Or more simply: negate x and y components
+            quat_world = np.array([quat_world[0], -quat_world[1], -quat_world[2], quat_world[3]])
+
+        return pos_world, quat_world
+
+    def angle_axis_to_quaternion(self, cartesian):
+        """
+        Convert a 6-element cartesian position to a quaternion.
+        
+        Parameters:
+            cartesian (array-like): 6 elements [x, y, z, rx, ry, rz]
+                                    last 3 elements are angle-axis (rad)
+        
+        Returns:
+            np.ndarray: Quaternion [w, x, y, z]
+        """
+        angle_axis = np.array(cartesian[3:6])
+        angle = np.linalg.norm(angle_axis)
+        
+        if angle == 0.0:
+            print("angle = 0")
+            # No rotation, identity quaternion
+            return np.array([1.0, 0.0, 0.0, 0.0])
+        else:
+            axis = angle_axis / angle
+            rot = R.from_rotvec(axis * angle)
+            q = rot.as_quat()  # Returns [x, y, z, w]
+            # Convert to [w, x, y, z]
+            return np.array([q[3], q[0], q[1], q[2]])
+        
+
     def _teleop_step(self):
         """Single teleop step - shared between viewer and headless modes"""
-        try:
-            # Get both leader robot states (7D each: 6 arm + 1 gripper)
-            left_state = self.driver_left.get_all_positions()
-            left_state = np.array(left_state)  # Convert VectorDouble to numpy
-            
-            right_state = self.driver_right.get_all_positions()
-            right_state = np.array(right_state)  # Convert VectorDouble to numpy
-            
-            # Split into arm and gripper for each robot
-            left_arm = left_state[:6]
-            left_gripper = left_state[6]
-            
-            right_arm = right_state[:6]
-            right_gripper = right_state[6]
-            
-            # Apply to MuJoCo ctrl
-            # Left robot (ctrl 0-5: arm, 6-7: gripper)
-            self.mj_data.ctrl[0:6] = left_arm
-            self.mj_data.ctrl[6] = left_gripper   # left/right_carriage_joint
-            self.mj_data.ctrl[7] = left_gripper   # left/left_carriage_joint
-            
-            # Right robot (ctrl 8-13: arm, 14-15: gripper)
-            self.mj_data.ctrl[8:14] = right_arm
-            self.mj_data.ctrl[14] = right_gripper  # right/right_carriage_joint
-            self.mj_data.ctrl[15] = right_gripper  # right/left_carriage_joint
-            
-        except Exception as e:
-            print(f"⚠️  Error reading leader positions: {e}")
-            print("   Robots may have gone into error state. Stopping...")
-            return False
-        
-        # Step simulation
-        mujoco.mj_step(self.mj_model, self.mj_data)
 
-        # Get the reward : 
-        reward = self.get_reward()
-        
-        # Get robot states from MuJoCo (for recording - both robots) => index 16 is the starting index of the box. 
-        left_qpos = self.mj_data.qpos[:8].copy()
-        left_qvel = self.mj_data.qvel[:8].copy()
-
-        
-        # Right robot: qpos[11:19] (8 joints after left robot)
-        right_qpos = self.mj_data.qpos[8:16].copy()
-        right_qvel = self.mj_data.qvel[8:16].copy()
-
-        #print("right_qpos", right_qvel[6], right_qvel[7])
-        
         # Combine for recording (16D state + 14D actions)
-        qpos = np.concatenate([left_qpos, right_qpos])
-        qvel = np.concatenate([left_qvel, right_qvel])
-        action = np.concatenate([left_state[:7], right_state[:7]])  # 16D total 
-        # action is the left state which is what we read from the real robot. 
-
+        qpos = self.ts.observation["qpos"]
+        qvel = self.ts.observation["qvel"]
+        mocap_right = self.ts.observation["mocap_pose_right"]
+        print("mocap before tranform : ", mocap_right)
 
         # Capture cameras (every step)
         images = self.capture_cameras()
         
-        # Push data to server
+        # Get left arm state
+        left_state = self.driver_left.get_cartesian_positions()
+        left_state = np.array(left_state)  # Convert VectorDouble to numpy
+        left_gripper = self.driver_left.get_gripper_position()
+
+        # Get right arm state
+        right_state = self.driver_right.get_cartesian_positions()
+        right_state = np.array(right_state)  # Convert VectorDouble to numpy
+        right_gripper = self.driver_right.get_gripper_position()
+
+        left_cart, left_quat = self.transform_robot_to_world_frame_qwen(left_state[0:3], self.angle_axis_to_quaternion(left_state), robot_name="left")
+        right_cart, right_quat = self.transform_robot_to_world_frame_qwen(right_state[0:3], self.angle_axis_to_quaternion((right_state)), robot_name="right")
+
+        print("right_action : ", np.concatenate([right_cart, left_quat]))
+        print("-----------------------------------------")
+
+        # Concatenate into a single vector: left arm first, then right arm
+        full_state_vector = np.concatenate([
+            left_cart, left_quat, [left_gripper],
+            right_cart, right_quat, [right_gripper]
+        ])
+
+        # Apply to MuJoCo ctrl
+        self.ts = self.env.step(full_state_vector)
+
+        # Get the reward after the stepping function. 
+        reward = 0.0 if self.ts.reward is None else self.ts.reward
+
+        set_observation_images(self.ts.observation, self.plt_imgs, self.cam_list)
+                
+        action = full_state_vector.copy()  # 16D total 
+        # action is the left state which is what we read from the real robot. 
+        
+        # Push data camera to server
         for cam_name, image in images.items():
             self.push_frame_to_server(cam_name, image) 
         
-        # TODO: Send state data to server for recording
-        self.push_state_to_server(qpos, qvel, action,reward) 
+        # Send state data to server for recording
+        self.push_state_to_server(qpos, qvel, action, reward) 
 
         # Both are pushed at the same moment so they correspond to the same image-state-action triplet. 
         # Check server recording status to detect STOP event
@@ -477,47 +454,6 @@ class TeleopWithServer:
 
         return True
     
-    def get_reward(self) -> int:
-        """
-        Computes the reward based on whether the cube has been transferred successfully.
-
-        :param physics: The MuJoCo physics simulation instance.
-        :return: The computed reward which is whether left gripper is holding the box
-        """
-        all_contact_pairs = []
-        for i_contact in range(self.mj_data.ncon): # gives the number of contact points currently detected in the simulation
-            id_geom_1 = self.mj_data.contact[i_contact].geom1 # For each contact, grab the IDs of the two colliding geometries.
-            id_geom_2 = self.mj_data.contact[i_contact].geom2
-            name_geom_1 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_1)
-            name_geom_2 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_2)
-
-            contact_pair = (name_geom_1, name_geom_2)
-            contact_pair_opposite = (name_geom_2, name_geom_1)
-            all_contact_pairs.append(contact_pair)
-            all_contact_pairs.append(contact_pair_opposite)
- 
-        touch_right_gripper = (
-            "red_box",
-            "right/gripper_follower_left",
-        ) in all_contact_pairs
-        touch_blue_table = (
-            "red_box",
-            "table_box",
-        ) in all_contact_pairs
-        touch_table = ("red_box", "table") in all_contact_pairs
-
-        reward = 0
-        if touch_right_gripper:
-            reward = 1
-        # lifted
-        if touch_right_gripper and not touch_table:
-            reward = 2
-        # attempted transfer
-        if touch_right_gripper and touch_blue_table: 
-            return 3
-        if touch_blue_table and not touch_right_gripper: 
-            return 4
-        return reward
     
     def cleanup(self):
         """Cleanup resources"""

@@ -13,25 +13,15 @@ import trossen_arm
 from pathlib import Path
 import requests
 import json
-
-# Path to MuJoCo XML
-XML_PATH_OPTIONS = [
-    Path(__file__).parent.parent / "assets" / "trossen_ai_scene_joint.xml",  # sim_recorder local copy
-    Path(__file__).parent.parent.parent / "trossen_sim" / "trossen_sim" / "envs" / "xmls" / "trossen_ai_scene_joint.xml",
-    Path(__file__).parent.parent.parent / "trossen_arm_mujoco" / "trossen_arm_mujoco" / "assets" / "trossen_ai_scene_joint.xml",
-]
-
-XML_PATH = None
-for path in XML_PATH_OPTIONS:
-    if path.exists():
-        XML_PATH = path
-        break
-
-if XML_PATH is None:
-    print(f"❌ ERROR: MuJoCo XML not found in any of these locations:")
-    for p in XML_PATH_OPTIONS:
-        print(f"   - {p}")
-    exit(1)
+from trossen_arm_mujoco.utils import make_sim_env
+from trossen_arm_mujoco.sim_env import TransferCubeEETask
+from trossen_arm_mujoco.utils import (
+    get_observation_base,
+    make_sim_env,
+    plot_observation_images,
+    sample_box_pose,
+    set_observation_images,
+)
 
 
 class TeleopWithServer:
@@ -101,25 +91,28 @@ class TeleopWithServer:
             self.leader_right_ip,
             False
         )
-        
+
         num_joints_left = self.driver_left.get_num_joints()
         num_joints_right = self.driver_right.get_num_joints()
         print(f"✓ Both leaders connected")
         print(f"  Left: {num_joints_left} joints, Right: {num_joints_right} joints")
-        
+
+        onscreen_render = True
+        cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+
         # Load MuJoCo model
-        print(f"🎮 Loading MuJoCo model: {XML_PATH.name}")
-        self.mj_model = mujoco.MjModel.from_xml_path(str(XML_PATH))
-        self.mj_data = mujoco.MjData(self.mj_model)
-        
-        # Get cube position
-        cube_pos = self.mj_data.qpos[:3]
-        print(f"✓ Cube at [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
-        print(f"✓ MuJoCo sim loaded")
+        env = make_sim_env(
+            TransferCubeEETask,
+            task_name="sim_transfer_cube",
+            onscreen_render=onscreen_render,
+            cam_list=cam_list,
+        )
+        ts = env.reset()
         
         # Setup renderer for cameras
-        self.renderer = mujoco.Renderer(self.mj_model, *self.camera_resolution) # Here we set the render to the camera resolution that we want. 
-        
+        if onscreen_render:
+            plt_imgs = plot_observation_images(ts.observation, cam_list)        
+
         # Check server connection
         print(f"🌐 Connecting to server at {self.server_url}...")
         try:
@@ -164,7 +157,7 @@ class TeleopWithServer:
             # Randomize position (x, y), fixed z
             # -----------------------------
             x = np.random.uniform(-0.1, 0.2)
-            y = np.random.uniform(-0.15, 0.025)
+            y = np.random.uniform(-0.15, 0.10)
             z = 0.0125
 
             # -----------------------------
@@ -248,6 +241,12 @@ class TeleopWithServer:
                 self.renderer.update_scene(self.mj_data, camera=cam_id)
                 image = self.renderer.render()
 
+                # Mirror across vertical axis (left-right flip)
+                if cam_name in ('cam_high', 'cam_low'):
+                    # image shape is (H, W, C) so flip along axis=1 (width)
+                    image = np.flip(image, axis=1)
+                    # alternative: image = image[:, ::-1, :]
+
                 images[cam_name] = image.copy()
 
             except Exception as e:
@@ -283,14 +282,13 @@ class TeleopWithServer:
         except Exception as e:
             print(f"⚠️  Failed to push frame: {e}")
     
-    def push_state_to_server(self, qpos, qvel, action, reward):
+    def push_state_to_server(self, qpos, qvel, action):
         """Send robot state + action to server"""
         try:
             data = {
                 'qpos': qpos.tolist(),
                 'qvel': qvel.tolist(),
-                'action': action.tolist(), 
-                'reward' : float(reward) 
+                'action': action.tolist()
             }
             
             response = requests.post(
@@ -426,11 +424,13 @@ class TeleopWithServer:
 
         # Get the reward : 
         reward = self.get_reward()
+        print("reward : ", reward)
         
         # Get robot states from MuJoCo (for recording - both robots) => index 16 is the starting index of the box. 
         left_qpos = self.mj_data.qpos[:8].copy()
         left_qvel = self.mj_data.qvel[:8].copy()
 
+        print("left_qpos", left_qpos[1])
         
         # Right robot: qpos[11:19] (8 joints after left robot)
         right_qpos = self.mj_data.qpos[8:16].copy()
@@ -443,8 +443,7 @@ class TeleopWithServer:
         qvel = np.concatenate([left_qvel, right_qvel])
         action = np.concatenate([left_state[:7], right_state[:7]])  # 16D total 
         # action is the left state which is what we read from the real robot. 
-
-
+        
         # Capture cameras (every step)
         images = self.capture_cameras()
         
@@ -453,7 +452,7 @@ class TeleopWithServer:
             self.push_frame_to_server(cam_name, image) 
         
         # TODO: Send state data to server for recording
-        self.push_state_to_server(qpos, qvel, action,reward) 
+        self.push_state_to_server(qpos, qvel, action) 
 
         # Both are pushed at the same moment so they correspond to the same image-state-action triplet. 
         # Check server recording status to detect STOP event
@@ -488,21 +487,18 @@ class TeleopWithServer:
         for i_contact in range(self.mj_data.ncon): # gives the number of contact points currently detected in the simulation
             id_geom_1 = self.mj_data.contact[i_contact].geom1 # For each contact, grab the IDs of the two colliding geometries.
             id_geom_2 = self.mj_data.contact[i_contact].geom2
-            name_geom_1 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_1)
-            name_geom_2 = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, id_geom_2)
-
+            name_geom_1 = self.mj_model.id2name(id_geom_1, "geom") # Convert these geometry IDs to human-readable names, like "red_box",
+            name_geom_2 = self.mj_model.id2name(id_geom_2, "geom")
             contact_pair = (name_geom_1, name_geom_2)
-            contact_pair_opposite = (name_geom_2, name_geom_1)
             all_contact_pairs.append(contact_pair)
-            all_contact_pairs.append(contact_pair_opposite)
- 
+
+        touch_left_gripper = (
+            "red_box",
+            "left/gripper_follower_left",
+        ) in all_contact_pairs  
         touch_right_gripper = (
             "red_box",
             "right/gripper_follower_left",
-        ) in all_contact_pairs
-        touch_blue_table = (
-            "red_box",
-            "table_box",
         ) in all_contact_pairs
         touch_table = ("red_box", "table") in all_contact_pairs
 
@@ -513,10 +509,11 @@ class TeleopWithServer:
         if touch_right_gripper and not touch_table:
             reward = 2
         # attempted transfer
-        if touch_right_gripper and touch_blue_table: 
-            return 3
-        if touch_blue_table and not touch_right_gripper: 
-            return 4
+        if touch_left_gripper:
+            reward = 3
+        # successful transfer
+        if touch_left_gripper and not touch_table:
+            reward = 4
         return reward
     
     def cleanup(self):

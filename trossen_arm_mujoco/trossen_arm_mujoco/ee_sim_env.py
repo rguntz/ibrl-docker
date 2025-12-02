@@ -25,11 +25,11 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-from scipy.spatial.transform import Rotation as R
 
 from dm_control.mujoco.engine import Physics
 from dm_control.suite import base
 import numpy as np
+import time
 
 from trossen_arm_mujoco.constants import START_ARM_POSE
 from trossen_arm_mujoco.utils import (
@@ -61,7 +61,7 @@ class TrossenAIStationaryEETask(base.Task):
         self.cam_list = cam_list
         if self.cam_list == []:
             self.cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-    
+
     def before_step(self, action: np.ndarray, physics: Physics) -> None:
         """
         Apply the action to the robotic arms before stepping the simulation.
@@ -69,27 +69,22 @@ class TrossenAIStationaryEETask(base.Task):
         :param action: The action vector containing position and gripper commands.
         :param physics: The simulation physics instance.
         """
-        a_len = len(action) // 2 
+        a_len = len(action) // 2
         action_left = action[:a_len]
         action_right = action[a_len:]
-
+        
         # set mocap position and quat
         # left
-        """
-        This sets the desired target position/orientation (mocap).  
-        Then, in the physics step, MuJoCo will pull the real end-effector toward that target.
-        """
         np.copyto(physics.data.mocap_pos[0], action_left[:3])
         np.copyto(physics.data.mocap_quat[0], action_left[3:7])
         # right
         np.copyto(physics.data.mocap_pos[1], action_right[:3])
         np.copyto(physics.data.mocap_quat[1], action_right[3:7])
 
-        # below is the gripper position. because there are 2 pliers we set both to the same value. 
-        physics.data.qpos[6] = action_left[7]
-        physics.data.qpos[7] = action_left[7]
-        physics.data.qpos[14] = action_right[7]
-        physics.data.qpos[15] = action_right[7]
+        physics.data.qpos[6] = action_left[7] # gripper opening and closing position left one
+        physics.data.qpos[7] = action_left[7] # symetrical opening and closing for gripper left one
+        physics.data.qpos[14] = action_right[7] # right one
+        physics.data.qpos[15] = action_right[7] # right one
 
     def initialize_robots(self, physics: Physics) -> None:
         """
@@ -101,10 +96,12 @@ class TrossenAIStationaryEETask(base.Task):
         physics.named.data.qpos[:12] = START_ARM_POSE[:6] + START_ARM_POSE[8:14]
 
         # reset mocap to align with end effector
-        np.copyto(physics.data.mocap_pos[0], [-0.19657, -0.019, 0.25021])
+        #np.copyto(physics.data.mocap_pos[0], [-0.19657, -0.019, 0.25021])
+        np.copyto(physics.data.mocap_pos[0], [-2.04248170e-01, -1.90390477e-02, 1.88026731e-01])
         np.copyto(physics.data.mocap_quat[0], [1, 0, 0, 0])
         # right
-        np.copyto(physics.data.mocap_pos[1], [0.19657, -0.019, 0.25021])
+        #np.copyto(physics.data.mocap_pos[1], [0.19657, -0.019, 0.25021])
+        np.copyto(physics.data.mocap_pos[1], [2.05969129e-01, -1.97438376e-02, 1.88026731e-01])
         np.copyto(physics.data.mocap_quat[1], [1, 0, 0, 0])
 
     def initialize_episode(self, physics: Physics):
@@ -147,6 +144,7 @@ class TrossenAIStationaryEETask(base.Task):
         return velocities[:16]
 
     def get_observation(self, physics: Physics) -> dict:
+
         """
         Retrieve the robot's observation data, including joint positions, velocities, and camera images.
 
@@ -164,6 +162,7 @@ class TrossenAIStationaryEETask(base.Task):
             [physics.data.mocap_pos[1], physics.data.mocap_quat[1]]
         ).copy()
         obs["gripper_ctrl"] = physics.data.ctrl.copy()
+
         return obs
 
     def get_reward(self, physics: Physics) -> int:
@@ -196,7 +195,7 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
             onscreen_render=onscreen_render,
             cam_list=cam_list,
         )
-        self.max_reward = 4 # maximum reward for this task => used in the trossen wrapper. 
+        self.max_reward = 4
 
     def initialize_episode(self, physics: Physics) -> None:
         """
@@ -208,6 +207,7 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
         # randomize box position
         cube_pose = sample_box_pose()
         box_start_idx = physics.model.name2id("red_box_joint", "joint")
+        print("cube index starting : ", box_start_idx)
         np.copyto(physics.data.qpos[box_start_idx : box_start_idx + 7], cube_pose)
 
         super().initialize_episode(physics)
@@ -225,12 +225,11 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
 
     def get_reward(self, physics: Physics) -> int:
         """
-        Compute the reward based on the cube's interaction with the robot and the environment.
+        Computes the reward based on whether the cube has been transferred successfully.
 
-        :param physics: The simulation physics engine.
-        :return: The computed reward.
+        :param physics: The MuJoCo physics simulation instance.
+        :return: The computed reward which is whether left gripper is holding the box
         """
-        # return whether left gripper is holding the box
         all_contact_pairs = []
         for i_contact in range(physics.data.ncon):
             id_geom_1 = physics.data.contact[i_contact].geom1
@@ -239,81 +238,48 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
             name_geom_2 = physics.model.id2name(id_geom_2, "geom")
             contact_pair = (name_geom_1, name_geom_2)
             all_contact_pairs.append(contact_pair)
-        touch_left_gripper = (
-            "red_box",
-            "left/gripper_follower_left",
-        ) in all_contact_pairs
+
         touch_right_gripper = (
             "red_box",
             "right/gripper_follower_left",
         ) in all_contact_pairs
-        touch_table = ("red_box", "table") in all_contact_pairs
+        touch_blue_table = (
+            "red_box",
+            "table_box",
+        ) in all_contact_pairs
 
         reward = 0
-        if touch_right_gripper:
-            reward = 1
-        if touch_right_gripper and not touch_table:  # lifted
-            reward = 2
-        if touch_left_gripper:  # attempted transfer
-            reward = 3
-        if touch_left_gripper and not touch_table:  # successful transfer
-            reward = 4
+        if touch_blue_table and not touch_right_gripper: 
+            return 1
         return reward
-    
-    
-
-    def get_arm_states(self, physics):
-        left_pos = physics.named.data.geom_xpos["left/gripper_follower_left"].copy()
-        right_pos = physics.named.data.geom_xpos["right/gripper_follower_left"].copy()
-
-        left_rot_mat = physics.named.data.geom_xmat["left/gripper_follower_left"].copy().reshape(3, 3)
-        right_rot_mat = physics.named.data.geom_xmat["right/gripper_follower_left"].copy().reshape(3, 3)
-
-        left_quat = R.from_matrix(left_rot_mat).as_quat()
-        right_quat = R.from_matrix(right_rot_mat).as_quat()
-
-        left_grip = float(np.mean([physics.data.qpos[6], physics.data.qpos[7]]))
-        right_grip = float(np.mean([physics.data.qpos[14], physics.data.qpos[15]]))
-
-        return {
-            "left": {"pos": left_pos, "quat": left_quat, "grip": left_grip},
-            "right": {"pos": right_pos, "quat": right_quat, "grip": right_grip},
-        }
-
 
 
 def test_ee_sim_env():
     onscreen_render = True
     cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-    max_steps: int = 2
-    print("max steps is : ", max_steps)
     env = make_sim_env(
         TransferCubeEETask,
         task_name="sim_transfer_cube",
         onscreen_render=onscreen_render,
         cam_list=cam_list,
-        max_steps = max_steps, 
     )
-
+    action_spec = env.action_spec()
+    print("action_spec is : ",action_spec)
     ts = env.reset()
     episode = [ts]
-    error = []
     # setup plotting
     if onscreen_render:
         plt_imgs = plot_observation_images(ts.observation, cam_list)
+
     for t in range(1000):
-        action = np.random.uniform(-0.1, 0.1, 23)
+        action = np.zeros(16)
+        action[:7] = [-0.1, 0, 0.5, 1, 0, 0, 0]
+        action[-8:-1] = [0.1, 0, 0.5, 1, 0, 0, 0]
+        print("action : ", action)
         ts = env.step(action)
-        #print(np.mean(error))
-        if ts.last():
-            print("Episode ended, auto-reset will occur next step.")
-        #print("ts : ", ts)
-        #print("Reward : ", ts.reward)
         episode.append(ts)
         if onscreen_render:
             plt_imgs = set_observation_images(ts.observation, plt_imgs, cam_list)
-    
-
 
 
 

@@ -82,7 +82,7 @@ def get_observation_base(
 
 def make_sim_env(
     task_class: base.Task,
-    xml_file: str = "trossen_ai_scene_joint.xml",
+    xml_file: str = "trossen_ai_scene.xml",
     task_name: str = "sim_transfer_cube",
     onscreen_render: bool = False,
     cam_list: list[str] = [],
@@ -110,6 +110,7 @@ def make_sim_env(
         )
     else:
         raise NotImplementedError(f"Task {task_name} is not implemented.")
+    
     
     time_limit = max_steps * DT
 
