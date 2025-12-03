@@ -86,7 +86,7 @@ def make_sim_env(
     task_name: str = "sim_transfer_cube",
     onscreen_render: bool = False,
     cam_list: list[str] = [],
-    max_steps: int = 1000,
+    max_steps: int = 1000000,
     
 
 ):

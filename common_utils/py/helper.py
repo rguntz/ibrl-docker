@@ -213,9 +213,10 @@ def one_hot(x, n):
 def set_all_seeds(rand_seed):
     random.seed(rand_seed)
     np.random.seed(rand_seed + 1)
-    torch.manual_seed(rand_seed + 2)
+    torch.manual_seed(rand_seed + 3)
     # seed_all for all gpus
     torch.cuda.manual_seed_all(rand_seed + 3)
+    print("randomness done")
 
 
 def count_output_size(input_shape, model):

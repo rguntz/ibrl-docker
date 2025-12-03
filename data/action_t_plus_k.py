@@ -64,7 +64,6 @@ def shift_actions_by_k(input_path, output_path, k=1):
 
 
 if __name__ == "__main__":
-    #input_file = "cube_picking_and_placing/dataset_200steps_actions16.hdf5"
-    input_file = "cube_picking_and_placing/dataset_actions16.hdf5"
-    output_file = "cube_picking_and_placing/dataset_actions16_shifted_5.hdf5"
-    shift_actions_by_k(input_file, output_file, k=20)
+    input_file = "cube_picking_and_placing/dataset_200steps_actions16.hdf5"
+    output_file = "cube_picking_and_placing/dataset_200steps_actions16_shifted_5.hdf5"
+    shift_actions_by_k(input_file, output_file, k=5)

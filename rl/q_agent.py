@@ -64,8 +64,6 @@ class QAgent(nn.Module):
             self.encoder = self._build_encoders(obs_shape) # passed from the train_rl.py
             repr_dim = self.encoder.repr_dim
             patch_repr_dim = self.encoder.patch_repr_dim
-            print("encoder output dim: ", repr_dim)
-            print("patch output dim: ", patch_repr_dim) # for ViT => this is the patch size used. 
 
             assert len(prop_shape) == 1
             prop_dim = prop_shape[0] if cfg.use_prop else 0
@@ -160,7 +158,6 @@ class QAgent(nn.Module):
         data = obs[self.rl_camera].float()
         if augment:
             data = self.aug(data)
-        print("data.shape is : ", data.shape)
         return self.encoder.forward(data, flatten=False)
 
     def _maybe_unsqueeze_(self, obs):
@@ -263,7 +260,8 @@ class QAgent(nn.Module):
 
         assert len(self.bc_policies) == 1
         bc_policy = self.bc_policies[0]
-        bc_action = bc_policy.act(obs, cpu=False)
+        bc_action = bc_policy.act(obs, cpu=False) # cpu mode. 
+
 
         rl_dist: utils.TruncatedNormal = actor(obs, stddev)
         if eval_mode:

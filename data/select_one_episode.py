@@ -63,7 +63,7 @@ def save_first_demo(input_path, output_path, keep_stride=None):
     print(f"\n🎉 Saved only the first demo to:\n{output_path}")
     return output_path
 
-input_file = "cube_picking_and_placing/dataset_200steps_actions16_shifted_5_normalized_minmax.hdf5"
-output_file = "cube_picking_and_placing/dataset_200steps_actions16_shifted_5_normalized_minmax_one_episode.hdf5"
+input_file = "cube_picking_and_placing/dataset_actions16.hdf5"
+output_file = "cube_picking_and_placing/dataset_actions16_one_episode.hdf5"
 
 save_first_demo(input_file, output_file)

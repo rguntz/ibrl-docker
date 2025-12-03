@@ -11,11 +11,14 @@ import os
 from pathlib import Path
 import json
 
-INPUT_FILE = "cube_picking_and_placing/dataset.hdf5"
-THRESHOLD = 0.05
-OUTPUT_PROCESSED_FILE = f"cube_picking_and_placing/dataset_filtered_threshold.hdf5"
-OUTPUT_SHIFTED = f"cube_picking_and_placing/dataset_filtered_threshold_shifted.hdf5"
-OUTPUT_NORM_FILE = f"cube_picking_and_placing/dataset_filtered_threshold_shifted_norm_min_max.hdf5"
+import h5py
+import torch
+import h5py
+import cv2
+import numpy as np
+from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def filter_demo_states(prop_full, threshold):
@@ -87,13 +90,11 @@ def process_dataset(input_file, output_file, threshold):
                         grp.attrs[attr_k] = attr_v
 
             # ----- Actions based on state deltas -----
-            kept_states = prop_in[kept_idx, :16]
-            N_kept = kept_states.shape[0]
-            actions_out = np.zeros((N_kept, 16))
-            for i in range(N_kept - 1):
-                actions_out[i] = kept_states[i + 1]
-            actions_out[-1] = kept_states[-1]
-            grp_out.create_dataset("actions", data=actions_out, compression="gzip")
+            # ----- Actions (filtered) -----
+            if "actions" in grp_in:
+                actions_in = grp_in["actions"][:]
+                actions_out = actions_in[kept_idx]
+                grp_out.create_dataset("actions", data=actions_out, compression="gzip")
 
             # ----- Copy other non-obs keys -----
             for key in grp_in.keys():
@@ -104,8 +105,6 @@ def process_dataset(input_file, output_file, threshold):
                         new_grp = grp_out.create_group(key)
                         for k, v in grp_in[key].attrs.items():
                             new_grp.attrs[k] = v
-
-            print(f"  Original length: {T}, Kept steps: {N_kept}")
 
     print("\nDone. Filtered dataset written to:", output_file)
 
@@ -214,7 +213,423 @@ def normalize_actions_jointwise(input_path, output_path):
         return output_path
 
 
+def cut_first_steps(input_path, output_path, cut_first_n=15):
+    """
+    Remove the first `cut_first_n` steps from each demo in the HDF5 dataset.
+    """
+
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+
+        # Copy data group and its attributes
+        fout.create_group("data")
+        for key, val in fin["data"].attrs.items():
+            fout["data"].attrs[key] = val
+
+        data_in = fin["data"]
+        data_out = fout["data"]
+
+        for demo_name in data_in.keys():
+            print(f"Processing {demo_name}...")
+
+            demo_in = data_in[demo_name]
+            demo_out = data_out.create_group(demo_name)
+
+            T = demo_in["actions"].shape[0]
+
+            # Compute start index after cutting
+            start_idx = min(cut_first_n, T - 1)
+            idx = range(start_idx, T)
+
+            # --- Actions ---
+            demo_out.create_dataset("actions", data=demo_in["actions"][idx])
+
+            # --- Rewards ---
+            demo_out.create_dataset("rewards", data=demo_in["rewards"][idx])
+
+            # --- Observations ---
+            obs_out = demo_out.create_group("obs")
+            obs_in = demo_in["obs"]
+            for obs_key in obs_in.keys():
+                obs_out.create_dataset(obs_key, data=obs_in[obs_key][idx], compression="gzip")
+
+        print(f"\n🎉 Finished! Saved dataset with first {cut_first_n} steps removed to:\n{output_path}")
+        return output_path
+    
+
+def clip_action_indices(input_path, output_path):
+    """
+    Clips the actions in the HDF5 file to the joint limits specified in normalize_actions_jointwise.
+    Only modifies the 'actions' dataset; other data is copied unchanged.
+    """
+    joint_mins = np.array([
+        -np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+        0, 0, -np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
+        0, 0
+    ])
+    joint_maxs = np.array([
+        np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+        0.04, 0.04, np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
+        0.04, 0.04
+    ])
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+        # Copy file-level and 'data' attributes
+        for k, v in fin.attrs.items():
+            fout.attrs[k] = v
+        fout.create_group("data")
+        for k, v in fin["data"].attrs.items():
+            fout["data"].attrs[k] = v
+
+        data_in = fin["data"]
+        data_out = fout["data"]
+
+        for demo_name in data_in.keys():
+            print(f"Processing {demo_name}...")
+            demo_in = data_in[demo_name]
+            demo_out = data_out.create_group(demo_name)
+
+            actions = demo_in["actions"][:]
+            actions_clipped = np.clip(actions, joint_mins, joint_maxs)
+            demo_out.create_dataset("actions", data=actions_clipped)
+
+            if "rewards" in demo_in:
+                demo_out.create_dataset("rewards", data=demo_in["rewards"][:])
+
+            obs_in = demo_in["obs"]
+            obs_out = demo_out.create_group("obs")
+            for obs_key in obs_in.keys():
+                obs_out.create_dataset(obs_key, data=obs_in[obs_key][:], compression="gzip")
+
+        print(f"\n🎉 Finished! Saved clipped dataset to:\n{output_path}")
+        return output_path
+    
+def inspect_right_arm_original_dataset(file):
+    with h5py.File(file, "r") as f:
+        print("Top-level keys:", list(f.keys()))
+
+        f_data = f["data"]
+        print("f_data keys:", list(f_data.keys()))
+        print("The number of demos is:", len(f_data))
+
+        # Take first demo
+        f_demo_0 = f_data["demo_1"]
+        print("f_demo_0 keys:", list(f_demo_0.keys()))
+
+        # Actions
+        action = f_demo_0["actions"]
+        print("Action size:", action.shape)
+        print("First action:", action[0])
+        print("Last action:", action[-1])
+
+        # Observations
+        obs = f_demo_0["obs"]
+        print("obs keys:", list(obs.keys()))
+
+        prop = obs["prop"]
+        print("Proprio shape:", prop.shape)
+        print("First proprio state:", prop[0])
+
+        # Select only the right arm joint positions (last 8 of the 16 positions)
+        print("prop shape : ", prop.shape)
+        right_arm_state = prop[:, 8:15]    # shape: (num_steps, 8)
+        right_arm_action = action[:, 7:14]  # shape: (num_steps, 8)
+
+        num_joints = right_arm_state.shape[1]
+        steps = range(right_arm_state.shape[0])
+
+        # Plot each joint in a separate subplot
+        fig, axes = plt.subplots(num_joints, 1, figsize=(12, 2*num_joints), sharex=True)
+
+        for j in range(num_joints):
+            print("min and max values : ", np.min(right_arm_state[:, j]), np.max(right_arm_state[:, j]))
+            axes[j].plot(steps, right_arm_state[:, j], label=f'Joint {j+1} Position', color='blue')
+            axes[j].plot(steps, right_arm_action[:, j], label=f'Joint {j+1} Action', linestyle='--', color='red')
+            axes[j].set_ylabel("Value")
+            axes[j].legend()
+            axes[j].grid(True)
+
+        axes[-1].set_xlabel("Step")
+        plt.suptitle("Right Arm Joint Positions and Actions")
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.show()
+
+def inspect_right_arm(file):
+    with h5py.File(file, "r") as f:
+        print("Top-level keys:", list(f.keys()))
+
+        f_data = f["data"]
+        print("f_data keys:", list(f_data.keys()))
+        print("The number of demos is:", len(f_data))
+
+        # Take first demo
+        f_demo_0 = f_data["demo_1"]
+        print("f_demo_0 keys:", list(f_demo_0.keys()))
+
+        # Actions
+        action = f_demo_0["actions"]
+        print("Action size:", action.shape)
+        print("First action:", action[0])
+        print("Last action:", action[-1])
+
+        # Observations
+        obs = f_demo_0["obs"]
+        print("obs keys:", list(obs.keys()))
+
+        prop = obs["prop"]
+        print("Proprio shape:", prop.shape)
+        print("First proprio state:", prop[0])
+
+        # Select only the right arm joint positions (last 8 of the 16 positions)
+        right_arm_state = prop[:, 8:16]    # shape: (num_steps, 8)
+        right_arm_action = action[:, -8:]  # shape: (num_steps, 8)
+
+        num_joints = right_arm_state.shape[1]
+        steps = range(right_arm_state.shape[0])
+
+        # Plot each joint in a separate subplot
+        fig, axes = plt.subplots(num_joints, 1, figsize=(12, 2*num_joints), sharex=True)
+
+        for j in range(num_joints):
+            print("min and max values : ", np.min(right_arm_state[:, j]), np.max(right_arm_state[:, j]))
+            axes[j].plot(steps, right_arm_state[:, j], label=f'Joint {j+1} Position', color='blue')
+            axes[j].plot(steps, right_arm_action[:, j], label=f'Joint {j+1} Action', linestyle='--', color='red')
+            axes[j].set_ylabel("Value")
+            axes[j].legend()
+            axes[j].grid(True)
+
+        axes[-1].set_xlabel("Step")
+        plt.suptitle("Right Arm Joint Positions and Actions")
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.show()
+
+
+def save_first_demo(input_path, output_path, keep_stride=None):
+    """
+    Copies ONLY the first demo from the HDF5 dataset.
+    Optionally downsamples using keep_stride.
+    """
+
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+
+        # create "data" group
+        fout.create_group("data")
+
+        # copy global attributes
+        for k, v in fin["data"].attrs.items():
+            fout["data"].attrs[k] = v
+
+        data_in = fin["data"]
+        data_out = fout["data"]
+
+        # ---- GET FIRST DEMO NAME ----
+        demo_names = list(data_in.keys())
+        if len(demo_names) == 0:
+            raise ValueError("No demos found in input dataset!")
+
+        first_demo = demo_names[0]
+        print(f"Saving ONLY the first demo: {first_demo}")
+
+        demo_in = data_in[first_demo]
+        demo_out = data_out.create_group(first_demo)
+
+        # ---- ACTIONS ----
+        actions = demo_in["actions"][:]
+        actions_ds = actions[::keep_stride] if keep_stride else actions
+        demo_out.create_dataset("actions", data=actions_ds)
+
+        # ---- REWARDS ----
+        rewards = demo_in["rewards"][:]
+        rewards_ds = rewards[::keep_stride] if keep_stride else rewards
+        demo_out.create_dataset("rewards", data=rewards_ds)
+
+        # ---- OBS ----
+        obs_in = demo_in["obs"]
+        obs_out = demo_out.create_group("obs")
+
+        for obs_key in obs_in.keys():
+            arr = obs_in[obs_key][:]
+
+            arr_ds = arr[::keep_stride] if keep_stride else arr
+
+            obs_out.create_dataset(
+                obs_key,
+                data=arr_ds,
+                compression="gzip"
+            )
+
+    print(f"\n🎉 Saved only the first demo to:\n{output_path}")
+    return output_path
+
+
+
+def resize_images(input_path, output_path, new_size=(96, 96)):
+    """
+    Resize all camera images in the HDF5 dataset from their current size to new_size.
+    
+    Args:
+        input_path: Path to input HDF5 file
+        output_path: Path to output HDF5 file
+        new_size: Tuple of (height, width) for the new image size
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+        
+        # Copy file-level and 'data' attributes
+        for k, v in fin.attrs.items():
+            fout.attrs[k] = v
+        
+        fout.create_group("data")
+        for k, v in fin["data"].attrs.items():
+            fout["data"].attrs[k] = v
+
+        data_in = fin["data"]
+        data_out = fout["data"]
+
+        # List of camera keys that need resizing
+        camera_keys = ['cam_high_image', 'cam_left_wrist_image', 
+                       'cam_low_image', 'cam_right_wrist_image']
+
+        for demo_name in data_in.keys():
+            print(f"Processing {demo_name}...")
+            
+            demo_in = data_in[demo_name]
+            demo_out = data_out.create_group(demo_name)
+
+            # --- Actions (unchanged) ---
+            demo_out.create_dataset("actions", data=demo_in["actions"][:])
+
+            # --- Rewards (unchanged) ---
+            demo_out.create_dataset("rewards", data=demo_in["rewards"][:])
+
+            # --- Observations ---
+            obs_in = demo_in["obs"]
+            obs_out = demo_out.create_group("obs")
+
+            for obs_key in obs_in.keys():
+                if obs_key in camera_keys:
+                    # Resize camera images
+                    images = obs_in[obs_key][:]  # Shape: (T, C, H, W)
+                    T, C, H, W = images.shape
+                    
+                    print(f"  Resizing {obs_key}: ({T}, {C}, {H}, {W}) -> ({T}, {C}, {new_size[0]}, {new_size[1]})")
+                    
+                    # Initialize resized array
+                    resized_images = np.zeros((T, C, new_size[0], new_size[1]), dtype=images.dtype)
+                    
+                    for t in range(T):
+                        # Convert from (C, H, W) to (H, W, C) for cv2
+                        img = images[t].transpose(1, 2, 0)
+                        
+                        # Resize using cv2
+                        img_resized = cv2.resize(img, (new_size[1], new_size[0]), 
+                                                interpolation=cv2.INTER_LINEAR)
+                        
+                        # Convert back to (C, H, W)
+                        resized_images[t] = img_resized.transpose(2, 0, 1)
+                    
+                    obs_out.create_dataset(obs_key, data=resized_images, compression="gzip")
+                else:
+                    # Copy non-image observations unchanged (like 'prop')
+                    obs_out.create_dataset(obs_key, data=obs_in[obs_key][:], compression="gzip")
+
+        print(f"\n🎉 Finished! Saved resized dataset to:\n{output_path}")
+        print(f"All camera images resized to {new_size[0]}x{new_size[1]}")
+        return output_path
+    
+def expand_gripper_actions(input_path, output_path):
+    """
+    Expands 14-dim actions to 16-dim by duplicating the gripper dimension
+    for symmetric parts for a 2-arm setup.
+    """
+
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+
+        # Copy global attributes from "data"
+        fout.create_group("data")
+        for attr_key, attr_val in fin["data"].attrs.items():
+            fout["data"].attrs[attr_key] = attr_val
+
+        data_in = fin["data"]
+        data_out = fout["data"]
+
+        for demo_name in data_in.keys():
+            print(f"Processing {demo_name}...")
+
+            demo_in = data_in[demo_name]
+            demo_out = data_out.create_group(demo_name)
+
+            # Expand actions from 14 → 16
+            actions = demo_in["actions"][:]
+            actions_expanded = np.zeros((actions.shape[0], 16), dtype=actions.dtype)
+
+            # Left arm
+            actions_expanded[:, :6] = actions[:, :6]  # joints
+            actions_expanded[:, 6] = actions[:, 6]   # gripper1
+            actions_expanded[:, 7] = actions[:, 6]   # gripper2 (duplicated)
+
+            # Right arm
+            actions_expanded[:, 8:14] = actions[:, 7:13]  # joints
+            actions_expanded[:, 14] = actions[:, 13]      # gripper1
+            actions_expanded[:, 15] = actions[:, 13]      # gripper2
+
+            demo_out.create_dataset("actions", data=actions_expanded)
+
+            # Copy rewards
+            demo_out.create_dataset("rewards", data=demo_in["rewards"][:])
+
+            # Copy observations
+            obs_in = demo_in["obs"]
+            obs_out = demo_out.create_group("obs")
+            for obs_key in obs_in.keys():
+                obs_out.create_dataset(obs_key, data=obs_in[obs_key][:], compression="gzip")
+
+        print(f"\n🎉 Finished! Saved expanded dataset to:\n{output_path}")
+        return output_path
+
+
+
 if __name__ == "__main__":
-    process_dataset(INPUT_FILE, OUTPUT_PROCESSED_FILE, THRESHOLD)
-    shift_actions_by_k(OUTPUT_PROCESSED_FILE, OUTPUT_SHIFTED, k = 5)
-    normalize_actions_jointwise(OUTPUT_SHIFTED, OUTPUT_NORM_FILE)
+
+    input_file =                    f"cube_picking_and_placing/tresholded/dataset.hdf5"
+    output_extend_gripper =         f"cube_picking_and_placing/tresholded/dataset_extended_gripper.hdf5"
+    treshold = 0.05 
+    output_processed_file =         f"cube_picking_and_placing/tresholded/dataset_extended_gripper_filtered_threshold.hdf5"
+    output_processed_file_resized = f"cube_picking_and_placing/tresholded/dataset_extended_gripper_filtered_threshold_96.hdf5"
+    output_shifted =                f"cube_picking_and_placing/tresholded/dataset_extended_gripper_filtered_threshold_96_shifted.hdf5"
+    output_gripper_clipped =        f"cube_picking_and_placing/tresholded/dataset_extended_gripper_filtered_threshold_96_shifted_gripper_clipped.hdf5"
+    output_normed_file =            f"cube_picking_and_placing/tresholded/dataset_extended_gripper_filtered_threshold_96_shifted_gripper_clipped_norm_min_max.hdf5"
+    output_cut_file =               f"cube_picking_and_placing/tresholded/dataset_extended_gripper_filtered_threshold_96_shifted_gripper_clipped_norm_min_max_cut.hdf5"
+
+    inspect_right_arm_original_dataset(input_file)
+    expand_gripper_actions(input_file, output_extend_gripper)
+    inspect_right_arm(output_extend_gripper)
+    process_dataset(output_extend_gripper, output_processed_file, treshold)
+    inspect_right_arm(output_processed_file)
+    resize_images(output_processed_file, output_processed_file_resized)
+    inspect_right_arm(output_processed_file_resized)
+    shift_actions_by_k(output_processed_file_resized, output_shifted, k = 5)
+    inspect_right_arm(output_shifted)
+    clip_action_indices(output_shifted, output_gripper_clipped)
+    inspect_right_arm(output_gripper_clipped)
+    normalize_actions_jointwise(output_gripper_clipped, output_normed_file)
+    inspect_right_arm(output_normed_file)
+    cut_first_steps(output_normed_file, output_cut_file)
+    inspect_right_arm(output_cut_file)
+    
+
+

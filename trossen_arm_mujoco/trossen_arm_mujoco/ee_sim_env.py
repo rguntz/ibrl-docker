@@ -30,6 +30,9 @@ from dm_control.mujoco.engine import Physics
 from dm_control.suite import base
 import numpy as np
 import time
+import h5py
+import numpy as np
+import matplotlib.pyplot as plt
 
 from trossen_arm_mujoco.constants import START_ARM_POSE
 from trossen_arm_mujoco.utils import (
@@ -72,7 +75,7 @@ class TrossenAIStationaryEETask(base.Task):
         a_len = len(action) // 2
         action_left = action[:a_len]
         action_right = action[a_len:]
-        
+
         # set mocap position and quat
         # left
         np.copyto(physics.data.mocap_pos[0], action_left[:3])
@@ -163,6 +166,12 @@ class TrossenAIStationaryEETask(base.Task):
         ).copy()
         obs["gripper_ctrl"] = physics.data.ctrl.copy()
 
+        # Add the features for ibrl : 
+        obs["robot0_eef_pos"] = np.concatenate([obs["mocap_pose_left"][:3],obs["mocap_pose_right"][:3]])
+        obs["robot0_eef_quat"] = np.concatenate([obs["mocap_pose_left"][3:],obs["mocap_pose_right"][3:]])    
+        #obs["robot0_gripper_qpos"] = np.concatenate([obs["qpos"][6:8],obs["qpos"][-2:]])  FOR 4 GRIPPERS. 
+        obs["robot0_gripper_qpos"] = np.concatenate([obs["qpos"][6:7],obs["qpos"][-2:-1]])  #FOR 2 GRIPPERS. 
+
         return obs
 
     def get_reward(self, physics: Physics) -> int:
@@ -207,7 +216,6 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
         # randomize box position
         cube_pose = sample_box_pose()
         box_start_idx = physics.model.name2id("red_box_joint", "joint")
-        print("cube index starting : ", box_start_idx)
         np.copyto(physics.data.qpos[box_start_idx : box_start_idx + 7], cube_pose)
 
         super().initialize_episode(physics)
@@ -266,22 +274,95 @@ def test_ee_sim_env():
     action_spec = env.action_spec()
     print("action_spec is : ",action_spec)
     ts = env.reset()
+    print("size of image from sim : ", ts.observation["images"]["cam_high"].shape)
     episode = [ts]
     # setup plotting
     if onscreen_render:
         plt_imgs = plot_observation_images(ts.observation, cam_list)
 
     for t in range(1000):
-        action = np.zeros(16)
-        action[:7] = [-0.1, 0, 0.5, 1, 0, 0, 0]
-        action[-8:-1] = [0.1, 0, 0.5, 1, 0, 0, 0]
-        print("action : ", action)
+        action = np.random.uniform(-0.1, 0.1, 16)
         ts = env.step(action)
         episode.append(ts)
         if onscreen_render:
             plt_imgs = set_observation_images(ts.observation, plt_imgs, cam_list)
+        
+
+
+def load_demo_actions_and_obs(dataset_path, demo_name="demo_0"):
+    """
+    Loads actions and observations from the HDF5 dataset for a specific demo.
+    
+    Returns:
+        actions: (T, 16) array of actions
+        obs_dict: dict with keys 'cam_high', 'cam_low', 'cam_left_wrist', 'cam_right_wrist', 'prop'
+                  images are (T, 128, 128, 3) after transposing channels
+    """
+    with h5py.File(dataset_path, "r") as f:
+        demo = f[f"data/{demo_name}"]
+        actions = demo["actions"][:]
+
+        obs_group = demo["obs"]
+        obs_dict = {
+            "cam_high": np.transpose(obs_group["cam_high_image"][:], (0, 2, 3, 1)),
+            "cam_low": np.transpose(obs_group["cam_low_image"][:], (0, 2, 3, 1)),
+            "cam_left_wrist": np.transpose(obs_group["cam_left_wrist_image"][:], (0, 2, 3, 1)),
+            "cam_right_wrist": np.transpose(obs_group["cam_right_wrist_image"][:], (0, 2, 3, 1)),
+            "qpos": obs_group["qpos"][:], 
+            "qvel": obs_group["qvel"][:],
+            "robot0_eef_pos" : obs_group["robot0_eef_pos"][:], 
+            "robot0_eef_quat" : obs_group["robot0_eef_quat"][:], 
+            "robot0_gripper_qpos" : obs_group["robot0_gripper_qpos"][:]
+        }
+    return actions, obs_dict
+
+
+def plotting_sim_teleop_with_dataset(dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee/server/data/dataset.hdf5", demo_name="demo_0"):
+
+    actions, dataset_obs = load_demo_actions_and_obs(dataset_path, demo_name)
+
+    cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+    env = make_sim_env(TransferCubeEETask, "trossen_ai_scene.xml")
+    ts = env.reset()
+    for i in range(5): 
+        ts = env.step(actions[0])
+    episode = [ts]
+
+    # Initialize dataset plot with the first timestep (just for AxesImage objects)
+    plt.figure("Dataset Observations")
+    dataset_imgs = plot_observation_images(
+        {'images': {cam: dataset_obs[cam][0] for cam in cam_list}},  # just placeholder for init
+        cam_list
+    )
+
+    plt.ion()
+    plt.figure("Simulation Observations")
+    sim_imgs = plot_observation_images(ts.observation, cam_list)
+
+    for t in range(len(actions)):
+
+        ## ---------------------------------
+        ts = env.step(actions[t])
+        episode.append(ts)
+
+        # Update simulation images
+        for i, cam in enumerate(cam_list):
+            sim_imgs[i].set_data(ts.observation["images"][cam])
+
+        # Update dataset images
+        for i, cam in enumerate(cam_list):
+            dataset_imgs[i].set_data(dataset_obs[cam][t])  # timestep t
+
+
+        plt.pause(0.01)
+
+
+
+    plt.show()
+
 
 
 
 if __name__ == "__main__":
-    test_ee_sim_env()
+    #test_ee_sim_env()
+    plotting_sim_teleop_with_dataset()

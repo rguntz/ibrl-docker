@@ -125,6 +125,6 @@ if __name__ == "__main__":
     normalize_actions_jointwise(input_file, output_file)
     """
 
-    input_file = "cube_picking_and_placing/dataset_actions16_shifted_5.hdf5"
-    output_file = "cube_picking_and_placing/dataset_actions16_shifted_5_normalized_minmax.hdf5"
+    input_file = "cube_picking_and_placing/dataset_200steps_actions16_shifted_5_cut_15.hdf5"
+    output_file = "cube_picking_and_placing/dataset_200steps_actions16_shifted_5_cut_15_normalized_minmax.hdf5"
     normalize_actions_jointwise(input_file, output_file)

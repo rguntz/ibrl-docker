@@ -147,13 +147,16 @@ def receive_state():
         qpos = np.array(data['qpos'])
         qvel = np.array(data['qvel'])
         action = np.array(data['action'])
+        robot0_eef_pos = np.array(data['robot0_eef_pos'])
+        robot0_eef_quat= np.array(data['robot0_eef_quat'])
+        robot0_gripper_qpos = np.array(data['robot0_gripper_qpos'])
         reward = np.float64(data["reward"])
     except Exception:
         return jsonify({'success': False, 'error': 'invalid payload'}), 400
 
     # Push into recorder (recorder will keep latest_state and recorder thread will use it)
     if hasattr(recorder, 'set_latest_state'):
-        recorder.set_latest_state(qpos, qvel, action, reward)
+        recorder.set_latest_state(qpos, qvel, action, robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, reward)
 
     return jsonify({'success': True})
 

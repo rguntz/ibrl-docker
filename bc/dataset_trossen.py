@@ -22,7 +22,7 @@ class DatasetConfig:
     rl_camera: str = "robot0_eye_in_hand"
     num_data: int = -1
     max_len: int = -1
-    eval_episode_len: int = 1000
+    eval_episode_len: int = 1060
     use_state: int = 0 # We dont use the state. 
     prop_stack: int = 1
     norm_action: int = 0
@@ -136,9 +136,13 @@ class RobomimicDataset:
             episode_entries = []
             for i in range(episode_len):
                 entry = {"action": episode_data["action"][i]}
-                if self.cfg.ctrl_delta: # maybe we need to modify this for our task as we are now doing joint control. 
-                    assert entry["action"].min() >= -np.pi
-                    assert entry["action"].max() <= np.pi
+                if self.cfg.ctrl_delta: # maybe we need to modify this for our task as we are now doing joint control.
+                    #print("episode i : ", episode_id, i) 
+                    #print("min : ", entry["action"].min())
+                    #print("max : ", entry["action"].max())
+                    assert entry["action"].min() >= -1
+                    assert entry["action"].max() <= 1
+    
 
                 entry["prop"] = utils.concat_obs(i, episode_data["prop"], cfg.prop_stack) # It takes the current timestep i, the array (e.g. all prop values over time), 
                 # and a stack number (e.g. 3), and returns a stacked observation of several recent frames.
@@ -178,6 +182,7 @@ class RobomimicDataset:
             self.env = None
             return
 
+        print("self.cfg.task_name : ", self.cfg.task_name)
         self.env_params: dict = dict(
             env_name=self.cfg.task_name,
             robots=self.cfg.robot,

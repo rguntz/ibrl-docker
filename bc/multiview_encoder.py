@@ -53,6 +53,7 @@ class MultiViewEncoder(nn.Module):
         self.cfg = cfg
         self.encoders = nn.ModuleList([ResNetEncoder(obs_shape, cfg.resnet) for _ in rl_cameras])
 
+
         enc_repr_dim: int = self.encoders[0].repr_dim  # type: ignore
         compress_layers = [
             nn.Sequential(
@@ -77,6 +78,14 @@ class MultiViewEncoder(nn.Module):
         for i, camera in enumerate(self.rl_cameras):
             x = obs[camera]  # x: (B, C, H, W)
 
+            torch.set_printoptions(
+                precision=10,      # number of decimal places
+                threshold=10000,   # print full tensor, not truncated
+                linewidth=200,     # line width before wrapping
+                sci_mode=False     # disable scientific notation
+            )
+
+
             if self.obs_horizon > 1:
                 x: torch.Tensor = x.unflatten(1, (-1, self.obs_shape[0]))
                 x = x.flatten(0, 1)
@@ -86,6 +95,8 @@ class MultiViewEncoder(nn.Module):
             if self.obs_horizon > 1:
                 h = h.view(-1, self.obs_horizon * self.cfg.feat_dim)
             hs.append(h)
+
+
 
         if self.cfg.fuse_method == "cat":
             h = torch.cat(hs, dim=1)  # dim=0 is the batch dim
@@ -102,6 +113,15 @@ class MultiViewEncoder(nn.Module):
 
         if self.use_prop:
             prop = obs["prop"]
+
             h = torch.cat([h, prop], dim=-1)
+
+            torch.set_printoptions(
+                precision=10,      # number of decimal places
+                threshold=10000,   # print full tensor, not truncated
+                linewidth=200,     # line width before wrapping
+                sci_mode=False     # disable scientific notation
+            )
+
 
         return h

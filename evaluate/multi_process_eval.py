@@ -115,7 +115,7 @@ def run_eval(env_params, agent, num_game, num_proc, seed, verbose=True) -> list[
 
             if len(obses) == 0:
                 continue
-
+            
             batch_obs = {k: torch.stack(v).cuda() for k, v in obses.items()}
             batch_action = agent.act(batch_obs, eval_mode=True)
             for idx, action in zip(idxs, batch_action):

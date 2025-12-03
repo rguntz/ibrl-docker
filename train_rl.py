@@ -336,7 +336,6 @@ class Workspace:
             #self.warm_up() # fill the replay buffer with demo data or the behavior cloning policy
             print("finished the warmup")
 
-
         stopwatch = common_utils.Stopwatch()
         obs, _ = self.train_env.reset() # reset the env 
         self.replay.new_episode(obs)

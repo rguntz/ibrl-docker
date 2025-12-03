@@ -32,14 +32,14 @@ class MainConfig(common_utils.RunConfig):
     grad_clip: float = 5
     weight_decay: float = 0
     # eval
-    num_eval_episode: int = 10
+    num_eval_episode: int = 50
     # to be overwritten by run() to facilitate model loading
     task_name: str = ""
     robots: list[str] = field(default_factory=lambda: [])
     image_size: int = -1
     rl_image_size: int = -1
     # log
-    save_dir: str = "exps/bc/run1"
+    save_dir: str = "exps/bc/run_ee_1"
     use_wb: int = 0
     save_per: int = -1
 
@@ -107,7 +107,6 @@ def run(cfg: MainConfig, policy):
         stopwatch.reset()
 
         for _ in range(cfg.epoch_len):
-            # finish evaluatig the episode
 
             with stopwatch.time("sample"):
                 batch = dataset.sample_bc(cfg.batch_size, "cuda:0")
@@ -137,15 +136,13 @@ def run(cfg: MainConfig, policy):
             saved = saver.save(policy.state_dict(), epoch, save_latest=True)
             if cfg.save_per > 0 and (epoch + 1) % cfg.save_per == 0:
                 saver.save(policy.state_dict(), epoch, force_save_name=f"epoch{epoch+1}")
-        else: # we are intering this loop for us. 
-            print("evaluation happening. ")
+        else:
+            print("we are evaluating")
             with stopwatch.time("eval"):
-                score = 0
-                saved = saver.save(policy.state_dict(), score, save_latest=True)
                 seed = epoch * cfg.num_eval_episode + 1
                 scores = evaluate(policy, dataset, seed=seed, num_game=cfg.num_eval_episode)
                 score = float(np.mean(scores))
-                #saved = saver.save(policy.state_dict(), score, save_latest=True)
+                saved = saver.save(policy.state_dict(), score, save_latest=True)
 
             best_score = max(best_score, score)
             stat["score"].append(score)
@@ -179,7 +176,6 @@ def run(cfg: MainConfig, policy):
 def evaluate(policy, dataset: RobomimicDataset, seed, num_game):
     return run_eval_mp(
         dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=1, verbose=False
-        #  num_proc stands for number of processes. 
     )
 
 
@@ -196,6 +192,7 @@ def _load_model(weight_file, env: PixelTrossen, device, cfg: Optional[MainConfig
         policy = BcPolicy(
             env.observation_shape, env.prop_shape, env.action_dim, env.rl_cameras, cfg.policy
         )
+        print("cfg policy is : ", cfg.policy, "rest :", env.observation_shape, env.prop_shape, env.action_dim, env.rl_cameras)
     policy.load_state_dict(torch.load(weight_file))
     return policy.to(device)
 
@@ -204,7 +201,7 @@ def _load_model(weight_file, env: PixelTrossen, device, cfg: Optional[MainConfig
 def load_model(weight_file, device, *, verbose=True):
     run_folder = os.path.dirname(weight_file)
     cfg_path = os.path.join(run_folder, f"cfg.yaml")
-    print("the config path is : ", cfg_path)
+    print("the config path is from trossen bc : ", cfg_path)
     if verbose:
         print(common_utils.wrap_ruler("config of loaded agent"))
         with open(cfg_path, "r") as f:

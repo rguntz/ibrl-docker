@@ -10,12 +10,18 @@ import numpy as np
 
 import common_utils
 from common_utils import ibrl_utils as utils
-#from evaluate import run_eval, run_eval_mp
+from evaluate import run_eval_mp
 #from env.robosuite_wrapper import PixelRobosuite
 from env.trossen_wrapper import PixelTrossen
-from rl.q_agent_mult_cameras import QAgent, QAgentConfig
+from rl.q_agent import QAgent, QAgentConfig
 from rl import replay_trossen as replay
 import train_bc_trossen as train_bc
+
+import os
+import pickle
+import torch
+from pathlib import Path
+
 
 
 @dataclass
@@ -23,11 +29,11 @@ class MainConfig(common_utils.RunConfig):
     seed: int = 1
     # env
     task_name: str = "TransferCubeTask"
-    episode_length: int = 200
+    episode_length: int = 120 # this is a dummy number the real one is specified inside the yaml file. 
     end_on_success: int = 1
     # render image in higher resolution for recording or using pretrained models
     image_size: int = 224
-    rl_image_size: int = 96
+    rl_image_size: int = 128
     rl_camera: str = "robot0_eye_in_hand"
     obs_stack: int = 1
     prop_stack: int = 1
@@ -38,7 +44,7 @@ class MainConfig(common_utils.RunConfig):
     stddev_max: float = 1.0
     stddev_min: float = 0.1
     stddev_step: int = 500000
-    nstep: int = 3
+    nstep: int = 3 # steps of reward calculation. 
     discount: float = 0.99
     replay_buffer_size: int = 500
     batch_size: int = 256
@@ -47,7 +53,7 @@ class MainConfig(common_utils.RunConfig):
     bc_policy: str = ""
     # rl with preload data
     mix_rl_rate: float = 1  # 1: only use rl, <1, mix in some bc data
-    preload_num_data: int = 0 #  set to zero to avoid having the demo data initially. 
+    preload_num_data: int = 50 #  set to zero to avoid having the demo data initially => set in config file.  
     preload_datapath: str = ""
     freeze_bc_replay: int = 1
     # pretrain rl policy with bc and finetune
@@ -59,14 +65,14 @@ class MainConfig(common_utils.RunConfig):
     add_bc_loss: int = 0
     # others
     env_reward_scale: float = 1
-    num_warm_up_episode: int = 1
+    num_warm_up_episode: int = 50
     num_eval_episode: int = 10
     save_per_success: int = -1
     mp_eval: int = 0  # eval with multiprocess
     num_train_step: int = 200000
     log_per_step: int = 5000
     # log
-    save_dir: str = "exps/rl/run1"
+    save_dir: str = "exps/rl/run2"
     use_wb: int = 0
 
     def __post_init__(self): # gets automatically called when initializing the class. 
@@ -137,7 +143,7 @@ class Workspace:
             self.train_env.observation_shape,
             self.train_env.prop_shape,
             self.train_env.action_dim,
-            self.cfg.rl_cameras,
+            self.cfg.rl_camera,
             cfg.q_agent,
         )
 
@@ -168,6 +174,7 @@ class Workspace:
 
         self._setup_replay()
 
+
     def _setup_env(self):
         self.rl_cameras: list[str] = list(set(self.cfg.rl_cameras + self.cfg.bc_cameras)) # the bc camera is the same as the rl camera. 
         #  If RL and BC cameras are the same, then this just returns that single list.
@@ -183,12 +190,14 @@ class Workspace:
 
         self.obs_stack = self.cfg.obs_stack # default value is obs_stack
         self.prop_stack = self.cfg.prop_stack # number of proprioceptive inputs (robot joint states, gripper info) to stack.
+
+        print("episode length cfg trossen", self.cfg.episode_length)
         # initialize at 1. 
 
         self.train_env = PixelTrossen( # Create the training environment
             env_name=self.cfg.task_name,
             robots=self.cfg.robots,
-            episode_length=self.cfg.episode_length,
+            episode_length=120,
             reward_shaping=False,
             image_size=self.cfg.image_size,
             rl_image_size=self.cfg.rl_image_size,
@@ -205,7 +214,7 @@ class Workspace:
         self.eval_env_params = dict(
             env_name=self.cfg.task_name,
             robots=self.cfg.robots,
-            episode_length=self.cfg.episode_length,
+            episode_length=120,
             reward_shaping=False,
             image_size=self.cfg.image_size,
             rl_image_size=self.cfg.rl_image_size,
@@ -290,6 +299,7 @@ class Workspace:
         self.replay.new_episode(obs)
         total_reward = 0
         num_episode = 0
+        counter = 0
         while True:
             if self.bc_policy is not None: # if we have a bc policy then we use it to fill the replay buffer. 
                 # we have a BC policy
@@ -304,12 +314,14 @@ class Workspace:
                 action = action.uniform_(-1.0, 1.0)
 
             obs, reward, terminal, success, image_obs = self.train_env.step(action)
+            counter += 1
 
             #self.train_env.env.render()
             reply = {"action": action}
             self.replay.add(obs, reply, reward, terminal, success, image_obs)
 
             if terminal:
+                print("terminal reached")
                 num_episode += 1
                 total_reward += self.train_env.episode_reward
                 if self.replay.size() < self.cfg.num_warm_up_episode:
@@ -336,6 +348,7 @@ class Workspace:
         if self.replay.num_episode < self.cfg.num_warm_up_episode:
             print("doing the warmup")
             self.warm_up() # fill the replay buffer with demo data or the behavior cloning policy
+            #self.warm_up_with_checkpointing()
             print("finished the warmup")
 
 
@@ -353,6 +366,7 @@ class Workspace:
             ### env.step ###
             with stopwatch.time("env step"): # Send the action to the simulator.
                 obs, reward, terminal, success, image_obs = self.train_env.step(action)
+                print("reward : ", reward)
                 #self.train_env.env.render()
                 
 
@@ -373,8 +387,8 @@ class Workspace:
                     self.replay.new_episode(obs)
 
             ### logging ###
-            #if self.global_step % self.cfg.log_per_step == 0:
-                # self.log_and_save(stopwatch, stat, saver)
+            if self.global_step % self.cfg.log_per_step == 0:
+                self.log_and_save(stopwatch, stat, saver)
 
             ### train ### => update the agent every 2 steps for example. 
             if self.global_step % self.cfg.update_freq == 0:

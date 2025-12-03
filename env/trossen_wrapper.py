@@ -8,18 +8,19 @@ import common_utils
 
 #from dm_control import suite
 from trossen_arm_mujoco.utils import make_sim_env
-from trossen_arm_mujoco.sim_env import TransferCubeTask
+from trossen_arm_mujoco.ee_sim_env import TransferCubeEETask
 from trossen_arm_mujoco.ee_sim_env import plot_observation_images, set_observation_images
 from matplotlib import pyplot as plt
 import time
-
 import os
 from PIL import Image
 import torch
+import h5py
+
 
 # Camera configurations for different tasks
 GOOD_CAMERAS = {
-    "TransferCubeTask": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
+    "TransferCubeEETask": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
 }
 
 DEFAULT_CAMERA = "cam_high"
@@ -28,17 +29,17 @@ DEFAULT_CAMERA = "cam_high"
 # State keys for observation
 DEFAULT_STATE_KEYS = ["qpos", "qvel", "env_state"]
 STATE_KEYS = {
-    "TransferCubeTask": DEFAULT_STATE_KEYS,
+    "TransferCubeEETask": DEFAULT_STATE_KEYS,
 }
 
 # State shape: qpos(16) + qvel(16) + env_state(7) = 39
 STATE_SHAPE = {
-    "TransferCubeTask": (39,),
+    "TransferCubeEETask": (39,),
 }
 
-# Proprioceptive keys: qpos (16) and qvel(16). 
-PROP_KEYS = ["qpos", "qvel"]
-PROP_DIM = 32  
+# Proprioceptive keys: robot0_eef_pos (6) and robot0_eef_quat(8) and robot0_gripper_qpos(2). 
+PROP_KEYS = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
+PROP_DIM = 16  
 
 
 class PixelTrossen:
@@ -66,12 +67,13 @@ class PixelTrossen:
         record_sim_state: bool = False,
         onscreen_render: bool = True,
     ):
-        print("camera names inside trosser wrapper is : ", camera_names)
         self._plt_fig = None
         self._plt_imgs = None
 
         self.max_reward_counter = 0
         self.max_reward_target = 10
+
+
 
         if camera_names is None:
             camera_names = [DEFAULT_CAMERA]
@@ -86,7 +88,7 @@ class PixelTrossen:
         
         # Map environment names to task classes
         task_map = {
-            "TransferCubeTask": TransferCubeTask,
+            "TransferCubeEETask": TransferCubeEETask,
         }
         
         if env_name not in task_map:
@@ -95,7 +97,7 @@ class PixelTrossen:
         # Create the Trossen environment
         cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
         self.env = make_sim_env(
-            TransferCubeTask,
+            TransferCubeEETask,
             task_name="sim_transfer_cube",
             onscreen_render=onscreen_render,
             cam_list=cam_list,
@@ -221,28 +223,35 @@ class PixelTrossen:
 
         # Reset environment - dm_control returns TimeStep
         ts = self.env.reset()
+
+        ##  ---------------------------------------------
+        ## Added initial position of the dataset : 
+        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/dataset.hdf5"
+        with h5py.File(file, "r") as f:
+            f_data = f["data"]
+
+            sum = np.zeros(16, dtype=float)
+            n = 0 
+
+            for i in range(len(f_data)) : 
+                f_demo_0 = f_data[f"demo_{i}"]
+                obs = f_demo_0["obs"]
+
+                for j in range(10) : 
+                    action_j = np.concatenate([obs["robot0_eef_pos"][j, :3], obs["robot0_eef_quat"][j, :4], np.array([obs["robot0_gripper_qpos"][j, 0]]), 
+                                         obs["robot0_eef_pos"][j, -3:],obs["robot0_eef_quat"][j, -4:], np.array([obs["robot0_gripper_qpos"][j, 1]])])                     
+                    sum += action_j 
+                    n += 1
+
+            mean = sum/n 
+
+        for i in range(10) : 
+            ts = self.env.step(mean)
+        ## ----------------------------------------------
+
+        
         obs = ts.observation
-
-        obs_display = obs.copy()
-
-        
-## ------------------------------------------------------##
-##      DEBUG 
-## ------------------------------------------------------##
-
-        img = obs["images"]['cam_high']  # Tensor: (3, H, W)
-
-        # Ensure directory exists
-        save_dir = "debug_images/sim_output"
-        os.makedirs(save_dir, exist_ok=True)
-
-        # Create PIL image and save
-        image = Image.fromarray(img)
-        image.save(f"{save_dir}/sim_frame.png")
-
-## ------------------------------------------------------##
-## ------------------------------------------------------##
-        
+        obs_display = obs.copy() 
 
         if 'images' in obs:
             for cam_name, cam_data in obs['images'].items():
@@ -255,12 +264,12 @@ class PixelTrossen:
         # Rendering : 
         if self.onscreen_render and self._plt_fig is None:
             self._plt_fig = plt.figure()
-            self._plt_imgs = plot_observation_images(obs_display, self.camera_names)
-            time.sleep(0.3)
+            self._plt_imgs = plot_observation_images(obs_display, GOOD_CAMERAS["TransferCubeEETask"])
 
         if self.cond_action > 0:
             past_action = torch.from_numpy(np.stack(self.past_actions)).to(self.device)
             rl_obs["past_action"] = past_action
+
 
         return rl_obs, high_res_images
 
@@ -304,30 +313,16 @@ class PixelTrossen:
         
         for i in range(num_action):
             self.time_step += 1
-            
-            # Joint normalization constants : 
-            joint_mins = np.array([-np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
-                                0, 0, -np.pi, 0, 0, -np.pi/2, -np.pi/2, -np.pi,
-                                0, 0])
-            joint_maxs = np.array([np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
-                                0.04, 0.04, np.pi, np.pi, 2.36, np.pi/2, np.pi/2, np.pi,
-                                0.04, 0.04])
-            
-            unnormalized_action = ((actions[i] + 1) / 2) * (joint_maxs - joint_mins) + joint_mins # we need to denormalize the action because the current one is between -1 and 1. 
-            ts = self.env.step(unnormalized_action)
+
+            ts = self.env.step(actions[i])
 
             obs = ts.observation
             obs_display = obs.copy()
 
-            print("action : ", unnormalized_action, "state : ", obs["qpos"])
-
             if 'images' in obs:
                 for cam_name, cam_data in obs['images'].items():
                     obs[cam_name] = cam_data
-                del obs['images']
-
-            #print("obs are : ", obs)
-    
+                del obs['images']    
                 
             step_reward = ts.reward if ts.reward is not None else 0
             terminal = ts.last() # common in dm control. 
@@ -337,8 +332,7 @@ class PixelTrossen:
 
             # Rendering : this is the code that renders the images. 
             if self.onscreen_render and self._plt_imgs is not None:
-                self._plt_imgs = set_observation_images(obs_display, self._plt_imgs, self.camera_names)
-                time.sleep(0.1)
+                self._plt_imgs = set_observation_images(obs_display, self._plt_imgs, GOOD_CAMERAS["TransferCubeEETask"])
 
             if i == num_action - 1:
                 rl_obs.update(curr_rl_obs)
@@ -362,6 +356,7 @@ class PixelTrossen:
 
         reward = reward * self.env_reward_scale
         self.terminal = terminal
+
         return rl_obs, reward, terminal, success, high_res_images
 
 
