@@ -1,0 +1,6 @@
+dataset:
+  path: data/cube_picking_and_placing/tresholded_reward/extended_gripper_dataset_wr_threshold_rewards_dones_shifted_gripper_clipped_clipped_norm_min_max_cut.hdf5
+  rl_camera: "cam_high" #+cam_low+cam_left_wrist+cam_right_wrist"  
+policy:
+  use_prop: 1
+use_wb: 0 
