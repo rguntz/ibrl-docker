@@ -5,6 +5,10 @@ common_utils/build/
 .vscode
 wandb
 data_outside_git/
+debug_images
+data/cube_picking_and_placing_ee
+sim_recorder_ee/server/data
+debug_images
 *.png
 *.pdf
 *.mp4

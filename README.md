@@ -4,7 +4,7 @@ To clone this repository along with all submodules, run:
 
 ```bash
 git clone --recursive https://github.com/rguntz/ibrl-docker.git
-git checkout Trossen
+git checkout bahavior_cloning_ee_control
 
 ```
 
@@ -17,22 +17,10 @@ tar -xvzf mujoco210-linux-x86_64.tar.gz -C /root/.mujoco
 rm mujoco210-linux-x86_64.tar.gz
 ```
 
-Download data and BC models
-
-
-Download dataset and models from [Google Drive](https://drive.google.com/file/d/1F2yH84Iqv0qRPmfH8o-kSzgtfaoqMzWE/view?usp=sharing) and put the folders under `release` folder.
-The release folder should contain `release/cfgs` (already shipped with the repo), `release/data` and `release/model` (the latter two are from the downloaded zip file).
-
-unzip the file : 
-```bash
-unzip data_and_model.zip
-```
-
 Create the Conda env : 
 ```bash 
 conda create --name ibrl python=3.10
 ```
-
 
 Activate the env : 
 ```bash
