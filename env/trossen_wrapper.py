@@ -42,7 +42,7 @@ STATE_SHAPE = {
 
 # Proprioceptive keys: robot0_eef_pos (6) and robot0_eef_quat(8) and robot0_gripper_qpos(2). 
 PROP_KEYS = ["robot0_eef_pos", "robot0_gripper_qpos"]
-PROP_DIM = 16  
+PROP_DIM = 8 # 6 for position and 2 for gripper.   
 
 
 class PixelTrossen:
@@ -122,9 +122,8 @@ class PixelTrossen:
         if self.rl_image_size != self.image_size:
             self.resize_transform = utils.get_rescale_transform((self.rl_image_size, self.rl_image_size))
 
-        # Action dimension: 16 : 8 actions per arm. 
-        # Based on sim_env.py test, action is 16-dimensional
-        self.action_dim: int = 16
+        # Action dimension: 8 (only position and gripper for the 2 arms)
+        self.action_dim: int = 8
         self._observation_shape: tuple[int, ...] = (3 * obs_stack, rl_image_size, rl_image_size)
         self._state_shape: tuple[int] = (STATE_SHAPE[env_name][0] * state_stack,)
         self.prop_shape: tuple[int] = (PROP_DIM * prop_stack,)
@@ -399,22 +398,19 @@ class PixelTrossen:
             reward += step_reward
             self.episode_reward += step_reward
 
-            # Check for success (max reward indicates successful transfer)
-            if step_reward == self.env.task.max_reward:
-                self.max_reward_counter += 1
-                success = True
-            else:
-                self.max_reward_counter = 0  # reset if we get a smaller reward
+            reward += step_reward
+            self.episode_reward += step_reward
 
-            if self.end_on_success and self.max_reward_counter >= self.max_reward_target:
-                terminal = True
+            if step_reward == 1:
+                success = True
+                if self.end_on_success:
+                    terminal = True
 
             if terminal:
                 break
 
         reward = reward * self.env_reward_scale
         self.terminal = terminal
-
         return rl_obs, reward, terminal, success, high_res_images
 
 

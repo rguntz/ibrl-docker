@@ -215,10 +215,10 @@ class Recorder:
                 time.sleep(sleep_time)
     
 
-    def _save_episode_hdf5(self, dataset_path="data_new_mujoco/dataset_2.hdf5") -> Path:
+    def _save_episode_hdf5(self, dataset_path="data_new_mujoco/dataset_3.hdf5") -> Path:
         """
         Save the current episode in robomimic-compatible HDF5 format.
-        Returns the Path to the dataset_2 file.
+        Returns the Path to the dataset_3 file.
         """
 
         #################################
@@ -284,15 +284,15 @@ class Recorder:
 
             print(f"💾 Saved {demo_name} to {dataset_path}")
         
-        # ✅ Return the path to the dataset_2
+        # ✅ Return the path to the dataset_3
         return dataset_path
 
 
 
     def list_episodes(self) -> List[Dict]:
-        """List all recorded episodes from HDF5 dataset_2"""
+        """List all recorded episodes from HDF5 dataset_3"""
         episodes = []
-        dataset_path = Path("data_new_mujoco/dataset_2.hdf5")
+        dataset_path = Path("data_new_mujoco/dataset_3.hdf5")
         
         if not dataset_path.exists():
             return episodes
@@ -306,7 +306,7 @@ class Recorder:
                 for demo_name in sorted(data_group.keys()):
                     demo_group = data_group[demo_name]
                     
-                    # Get number of steps from actions dataset_2
+                    # Get number of steps from actions dataset_3
                     num_steps = len(demo_group.get('actions', [])) if 'actions' in demo_group else 0
                     
                     episodes.append({
@@ -322,11 +322,11 @@ class Recorder:
         return episodes
     
     def delete_episode(self, episode_id: str) -> bool:
-        """Delete an episode from HDF5 dataset_2"""
-        dataset_path = Path("data_new_mujoco/dataset_2.hdf5")
+        """Delete an episode from HDF5 dataset_3"""
+        dataset_path = Path("data_new_mujoco/dataset_3.hdf5")
         
         if not dataset_path.exists():
-            print(f"⚠️  dataset_2 file not found: {dataset_path}")
+            print(f"⚠️  dataset_3 file not found: {dataset_path}")
             return False
         
         try:

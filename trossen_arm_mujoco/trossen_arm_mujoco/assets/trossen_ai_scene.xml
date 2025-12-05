@@ -165,9 +165,11 @@
     <geom mesh="tablelegs" material="table" class="visual" pos="0 0 -0.75" quat="1 0 0 1"/>
     <geom name="table_collision" type="box" 
       size="0.605 0.38 0.02" 
-      pos="0 0 -0.02" 
-      contype="1" conaffinity="1" 
-      rgba="0 1 0 0.2" />
+      pos="0 0 -0.019"
+      contype="1" conaffinity="1"
+      solref="0.001 1"
+      solimp="0.99 0.99 0.001"
+      group="3" />
     <geom class="frame" pos="0.44 -0.361 1.03" quat="0 1 0 1" mesh="extrusion_2040_880"/>
     <geom class="frame" pos="0.44 -0.371 0.61" quat="1 0 -1 0" mesh="extrusion_150"/>
     <geom class="frame" pos="0 -0.303794 1.02524" quat="0 0 0.976296 0.21644" mesh="d405_solid"/>

@@ -7,8 +7,8 @@ def count_episodes(hdf5_path):
         num_episodes = len(data_group.keys())
     return num_episodes
 
-input_file = "dataset_2.hdf5"
-print(f"Number of episodes in the dataset_2: {count_episodes(input_file)}")
+input_file = "dataset_3.hdf5"
+print(f"Number of episodes in the dataset_3: {count_episodes(input_file)}")
 
 import h5py
 import cv2
@@ -54,7 +54,7 @@ def save_first_camera_video_and_image(hdf5_path, output_video_path, output_image
 
 
 # Example usage
-input_file = "dataset_2.hdf5"
+input_file = "dataset_3.hdf5"
 output_video = "first_demo_camera.mp4"
 output_image = "first_frame.png"
 
@@ -62,8 +62,8 @@ print("input_file", input_file)
 save_first_camera_video_and_image(input_file, output_video, output_image, fps=30)
 print("video created")
 
-#input_file = "cube_picking_and_placing/dataset_2.hdf5"
-input_file = "dataset_2.hdf5"
+#input_file = "cube_picking_and_placing/dataset_3.hdf5"
+input_file = "dataset_3.hdf5"
 
 
 
@@ -129,7 +129,7 @@ input_file = "cube_picking_and_placing/dataset_200steps_actions16_shifted_5_norm
 
 datafile = h5py.File(input_file) # maps global step index → (episode_id, timestep)
 num_episode: int = len(list(datafile["data"].keys()))  # type: ignore
-print(f"Raw dataset_2 size (#episode): {num_episode}")
+print(f"Raw dataset_3 size (#episode): {num_episode}")
 
 all_actions = []  # for # logging purpose
 for episode_id in range(num_episode): # everything that is below is inside this loop.

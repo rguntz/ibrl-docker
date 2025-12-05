@@ -28,7 +28,7 @@ from pathlib import Path
 class MainConfig(common_utils.RunConfig):
     seed: int = 1
     # env
-    task_name: str = "TransferCubeTask"
+    task_name: str = "TransferCubeEETask"
     episode_length: int = 120 # this is a dummy number the real one is specified inside the yaml file. 
     end_on_success: int = 1
     # render image in higher resolution for recording or using pretrained models
@@ -72,7 +72,7 @@ class MainConfig(common_utils.RunConfig):
     num_train_step: int = 200000
     log_per_step: int = 5000
     # log
-    save_dir: str = "exps/rl/run2"
+    save_dir: str = "exps/rl/run_ee_pos_end_cut"
     use_wb: int = 0
 
     def __post_init__(self): # gets automatically called when initializing the class. 
@@ -138,6 +138,7 @@ class Workspace:
         self._setup_env()
 
         print("train_env.observation_shape", self.train_env.observation_shape, "use state : ", self.cfg.use_state) # (3, 96, 96) I guess its for 96 pixels by 96 pixels and 3 for the rgb. 
+        print("action dim shape : ", self.train_env.action_dim, "prop dim shape : ", self.train_env.prop_shape)
         self.agent = QAgent( # init the agent. 
             self.cfg.use_state, # in our case its 0 => false. 
             self.train_env.observation_shape,

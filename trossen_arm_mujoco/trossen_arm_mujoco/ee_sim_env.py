@@ -162,6 +162,7 @@ class TrossenAIStationaryEETask(base.Task):
         obs["qpos"] = self.get_position(physics)
         obs["qvel"] = self.get_velocity(physics)
         obs["env_state"] = self.get_env_state(physics)
+        
         obs["mocap_pose_left"] = np.concatenate(
             [physics.data.mocap_pos[0], physics.data.mocap_quat[0]]
         ).copy()
@@ -270,7 +271,11 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
             for cube_geom in RED_CUBE_GEOMS
         )
 
-        if touch_blue_table and not touch_right_gripper:
+        obs = self.get_observation(physics)
+        env_state = obs["env_state"]
+        z_position = env_state[2]
+
+        if touch_blue_table and not touch_right_gripper and z_position > 0.17:
             return 1
         return 0
 
