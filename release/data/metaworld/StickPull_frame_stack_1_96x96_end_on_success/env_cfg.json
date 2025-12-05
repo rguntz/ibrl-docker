@@ -1,0 +1,1 @@
+{"env_name": "StickPull", "env_kwargs": {"env_name": "StickPull", "robots": ["Sawyer"], "episode_length": 100, "action_repeat": 2, "frame_stack": 1, "obs_stack": 1, "reward_shaping": false, "rl_image_size": 96, "device": "cuda", "camera_names": ["corner2"], "rl_camera": "corner2", "env_reward_scale": 1.0, "end_on_success": true, "use_state": true}}

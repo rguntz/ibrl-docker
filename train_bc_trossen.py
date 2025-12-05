@@ -39,7 +39,7 @@ class MainConfig(common_utils.RunConfig):
     image_size: int = -1
     rl_image_size: int = -1
     # log
-    save_dir: str = "exps/bc/run_ee_1"
+    save_dir: str = "exps/bc/run_ee_pos_2"
     use_wb: int = 0
     save_per: int = -1
 
@@ -175,7 +175,7 @@ def run(cfg: MainConfig, policy):
 
 def evaluate(policy, dataset: RobomimicDataset, seed, num_game):
     return run_eval_mp(
-        dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=1, verbose=False
+        dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=10, verbose=False
     )
 
 

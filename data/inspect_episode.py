@@ -76,15 +76,15 @@ def inspect_keys(file) :
         print("obs keys : ", obs.keys())
 
         robot0_eef_pos = obs["robot0_eef_pos"]
-        print("prop keys : ", robot0_eef_pos.shape)
+        print("robot0_eef_pos keys : ", robot0_eef_pos.shape)
         print("proprio first episode : ", robot0_eef_pos[0])
 
         robot0_eef_quat = obs["robot0_eef_quat"]
-        print("prop keys : ", robot0_eef_quat.shape)
+        print("robot0_eef_quat keys : ", robot0_eef_quat.shape)
         print("proprio first episode : ", robot0_eef_quat[0])
 
         robot0_gripper_qpos = obs["robot0_gripper_qpos"]
-        print("prop keys : ", robot0_gripper_qpos.shape)
+        print("robot0_gripper_qpos keys : ", robot0_gripper_qpos.shape)
         print("proprio first episode : ", robot0_gripper_qpos[0])
 
         # --- NEW: Check min/max for proprioception values ---
@@ -364,9 +364,9 @@ def inspect_initial_position(file) :
 
 
 
-input_file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/dataset.hdf5"
+input_file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/dataset.hdf5"
 inspect_keys(input_file)
-save_first_camera_video_and_image(input_file, output_video_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/episode.mp4", output_image_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/first_frame.png", fps=30)
+save_first_camera_video_and_image(input_file, output_video_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/episode.mp4", output_image_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/first_frame.png", fps=30)
 
 print("#############################################################################################")
 print("#############################################################################################")

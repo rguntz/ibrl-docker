@@ -84,10 +84,14 @@ class TrossenAIStationaryEETask(base.Task):
         np.copyto(physics.data.mocap_pos[1], action_right[:3])
         np.copyto(physics.data.mocap_quat[1], action_right[3:7])
 
-        physics.data.qpos[6] = action_left[7] # gripper opening and closing position left one
-        physics.data.qpos[7] = action_left[7] # symetrical opening and closing for gripper left one
-        physics.data.qpos[14] = action_right[7] # right one
-        physics.data.qpos[15] = action_right[7] # right one
+        # physics.data.qpos[6] = action_left[7] # gripper opening and closing position left one
+        # physics.data.qpos[7] = action_left[7] # symetrical opening and closing for gripper left one
+        # physics.data.qpos[14] = action_right[7] # right one
+        # physics.data.qpos[15] = action_right[7] # right one
+
+        # Use actuators instead of direct position control
+        physics.data.ctrl[0] = action_left[7]  # left gripper motor
+        physics.data.ctrl[1] = action_right[7] # right gripper motor
 
     def initialize_robots(self, physics: Physics) -> None:
         """
@@ -204,7 +208,7 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
             onscreen_render=onscreen_render,
             cam_list=cam_list,
         )
-        self.max_reward = 4
+        self.max_reward = 1
 
     def initialize_episode(self, physics: Physics) -> None:
         """
@@ -233,33 +237,42 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
 
     def get_reward(self, physics: Physics) -> int:
         """
-        Computes the reward based on whether the cube has been transferred successfully.
-
+        Computes the reward based on whether the cube is on the table and not held by the right gripper.
+        
         :param physics: The MuJoCo physics simulation instance.
-        :return: The computed reward which is whether left gripper is holding the box
+        :return: 1 if cube is on table and not gripped, else 0.
         """
-        all_contact_pairs = []
-        for i_contact in range(physics.data.ncon):
-            id_geom_1 = physics.data.contact[i_contact].geom1
-            id_geom_2 = physics.data.contact[i_contact].geom2
-            name_geom_1 = physics.model.id2name(id_geom_1, "geom")
-            name_geom_2 = physics.model.id2name(id_geom_2, "geom")
-            contact_pair = (name_geom_1, name_geom_2)
-            all_contact_pairs.append(contact_pair)
+        # Define all collision geom names that belong to the red cube
+        RED_CUBE_GEOMS = {"subcube1", "subcube2", "subcube3", "subcube4"}
+        TABLE_GEOM = "table_box"
+        GRIPPER_GEOM = "right/gripper_follower_left"
 
-        touch_right_gripper = (
-            "red_box",
-            "right/gripper_follower_left",
-        ) in all_contact_pairs
-        touch_blue_table = (
-            "red_box",
-            "table_box",
-        ) in all_contact_pairs
+        # Build set of contact pairs (as unordered tuples for robust matching)
+        contact_pairs = set()
+        for i in range(physics.data.ncon):
+            g1_id = physics.data.contact[i].geom1
+            g2_id = physics.data.contact[i].geom2
+            g1_name = physics.model.id2name(g1_id, "geom")
+            g2_name = physics.model.id2name(g2_id, "geom")
+            if g1_name and g2_name:  # skip unnamed geoms
+                contact_pairs.add((g1_name, g2_name))
+                contact_pairs.add((g2_name, g1_name))  # make order-agnostic
 
-        reward = 0
-        if touch_blue_table and not touch_right_gripper: 
+        # Check if ANY red cube geom touches the table
+        touch_blue_table = any(
+            (cube_geom, TABLE_GEOM) in contact_pairs
+            for cube_geom in RED_CUBE_GEOMS
+        )
+
+        # Check if ANY red cube geom touches the right gripper
+        touch_right_gripper = any(
+            (cube_geom, GRIPPER_GEOM) in contact_pairs
+            for cube_geom in RED_CUBE_GEOMS
+        )
+
+        if touch_blue_table and not touch_right_gripper:
             return 1
-        return reward
+        return 0
 
 
 def test_ee_sim_env():
@@ -317,52 +330,78 @@ def load_demo_actions_and_obs(dataset_path, demo_name="demo_0"):
     return actions, obs_dict
 
 
-def plotting_sim_teleop_with_dataset(dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee/server/data/dataset.hdf5", demo_name="demo_0"):
+def modif_action(action_step) : 
+    # Since the action is only 8 dimensional we need to include the quaternions now : 
+            # set the quaternion of both to [1, 0, 0, 0] : 
+    theta = np.deg2rad(-20)  # negative = pitch down
+    half_theta = theta / 2
+    pitch_quat = [
+        np.cos(half_theta),        # w
+        0,                         # x (axis x = 0)
+        np.sin(half_theta),        # y (axis y = 1)
+        0                          # z (axis z = 0)
+    ]
 
-    actions, dataset_obs = load_demo_actions_and_obs(dataset_path, demo_name)
+    left_quat = [1, 0, 0, 0]
+    right_quat = pitch_quat
 
-    cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-    env = make_sim_env(TransferCubeEETask, "trossen_ai_scene.xml")
-    ts = env.reset()
-    for i in range(5): 
-        ts = env.step(actions[0])
-    episode = [ts]
+    action_step = np.concatenate([
+        action_step[:3],
+        left_quat,
+        np.array([action_step[3]]),
+        action_step[4:7],
+        right_quat,
+        np.array([action_step[7]])
+    ])
+    return action_step
 
-    # Initialize dataset plot with the first timestep (just for AxesImage objects)
-    plt.figure("Dataset Observations")
-    dataset_imgs = plot_observation_images(
-        {'images': {cam: dataset_obs[cam][0] for cam in cam_list}},  # just placeholder for init
-        cam_list
-    )
+def plotting_sim_teleop_with_dataset(dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/new_mujoco/tresholding/dataset_tresholded_wr_shifted_norm_gripper.hdf5", demo_name="demo_0"):
 
-    plt.ion()
-    plt.figure("Simulation Observations")
-    sim_imgs = plot_observation_images(ts.observation, cam_list)
+    for demo_number in range(50) : 
+        demo_name = f"demo_{demo_number}"
+        actions, dataset_obs = load_demo_actions_and_obs(dataset_path, demo_name)
 
-    for t in range(len(actions)):
+        cam_list = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+        env = make_sim_env(TransferCubeEETask, "trossen_ai_scene.xml")
+        ts = env.reset()
+        episode = [ts]
 
-        ## ---------------------------------
-        ts = env.step(actions[t])
-        episode.append(ts)
+        # Initialize dataset plot with the first timestep (just for AxesImage objects)
+        plt.figure("Dataset Observations")
+        dataset_imgs = plot_observation_images(
+            {'images': {cam: dataset_obs[cam][0] for cam in cam_list}},  # just placeholder for init
+            cam_list
+        )
 
-        # Update simulation images
-        for i, cam in enumerate(cam_list):
-            sim_imgs[i].set_data(ts.observation["images"][cam])
+        plt.ion()
+        plt.figure("Simulation Observations")
+        sim_imgs = plot_observation_images(ts.observation, cam_list)
 
-        # Update dataset images
-        for i, cam in enumerate(cam_list):
-            dataset_imgs[i].set_data(dataset_obs[cam][t])  # timestep t
+        for t in range(len(actions)):
+
+    ##################################################################################################
+            action_step = modif_action(actions[t])
+    ##################################################################################################
+
+            ## ---------------------------------
+            ts = env.step(action_step)
+            episode.append(ts)
+
+            # Update simulation images
+            for i, cam in enumerate(cam_list):
+                sim_imgs[i].set_data(ts.observation["images"][cam])
+
+            # Update dataset images
+            for i, cam in enumerate(cam_list):
+                dataset_imgs[i].set_data(dataset_obs[cam][t])  # timestep t
 
 
-        plt.pause(0.01)
+            plt.pause(0.01)
 
-
-
-    plt.show()
+        plt.show()
 
 
 
 
 if __name__ == "__main__":
-    #test_ee_sim_env()
-    plotting_sim_teleop_with_dataset()
+    plotting_sim_teleop_with_dataset(dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/new_mujoco/dataset.hdf5", demo_name="demo_0")

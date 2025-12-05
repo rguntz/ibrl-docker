@@ -1,5 +1,5 @@
 dataset:
-  path: data/cube_picking_and_placing_ee/no_tresholding/dataset_cut_init_step_wr.hdf5
+  path: data/cube_picking_and_placing_ee_pos/new_mujoco/tresholding/dataset_tresholded_wr_shifted_norm_gripper.hdf5
   rl_camera: "cam_high" #+cam_low+cam_left_wrist+cam_right_wrist"  
 policy:
   use_prop: 1

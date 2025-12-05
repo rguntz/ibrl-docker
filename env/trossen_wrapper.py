@@ -17,6 +17,9 @@ from PIL import Image
 import torch
 import h5py
 
+GRIPPER_MIN = 0.0
+GRIPPER_MAX = 0.04
+GRIPPER_INDICES = [3, 7]
 
 # Camera configurations for different tasks
 GOOD_CAMERAS = {
@@ -38,7 +41,7 @@ STATE_SHAPE = {
 }
 
 # Proprioceptive keys: robot0_eef_pos (6) and robot0_eef_quat(8) and robot0_gripper_qpos(2). 
-PROP_KEYS = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
+PROP_KEYS = ["robot0_eef_pos", "robot0_gripper_qpos"]
 PROP_DIM = 16  
 
 
@@ -272,6 +275,55 @@ class PixelTrossen:
 
 
         return rl_obs, high_res_images
+    
+
+    def modif_action(self, action_step) : 
+        # Since the action is only 8 dimensional we need to include the quaternions now : 
+                # set the quaternion of both to [1, 0, 0, 0] : 
+        theta = np.deg2rad(-20)  # negative = pitch down
+        half_theta = theta / 2
+        pitch_quat = [
+            np.cos(half_theta),        # w
+            0,                         # x (axis x = 0)
+            np.sin(half_theta),        # y (axis y = 1)
+            0                          # z (axis z = 0)
+        ]
+
+        left_quat = [1, 0, 0, 0]
+        right_quat = pitch_quat
+
+        action_step = np.concatenate([
+            action_step[:3],
+            left_quat,
+            np.array([action_step[3]]),
+            action_step[4:7],
+            right_quat,
+            np.array([action_step[7]])
+        ])
+        return action_step
+    
+    def denormalize_gripper_actions(self, actions):
+        """
+        Denormalize gripper dimensions (indices 3 and 7) from [-1, 1] to [0, 0.04].
+        Other action dimensions are unchanged.
+
+        Args:
+            actions (np.ndarray): Shape (..., 8), grippers assumed in [-1, 1]
+
+        Returns:
+            np.ndarray: Same shape, with grippers in [0, 0.04]
+        """
+        actions = np.array(actions, copy=True)
+        grippers = actions[..., GRIPPER_INDICES]
+
+        # Denormalize: [-1, 1] → [0, 0.04]
+        grippers_denorm = (grippers + 1) / 2 * (GRIPPER_MAX - GRIPPER_MIN) + GRIPPER_MIN
+
+        # Optional: clamp to [0, 0.04] to handle numerical errors
+        grippers_denorm = np.clip(grippers_denorm, GRIPPER_MIN, GRIPPER_MAX)
+
+        actions[..., GRIPPER_INDICES] = grippers_denorm
+        return actions
 
     def step(self, actions: torch.Tensor) -> tuple[dict, float, bool, bool, dict]:
 
@@ -314,7 +366,13 @@ class PixelTrossen:
         for i in range(num_action):
             self.time_step += 1
 
-            ts = self.env.step(actions[i])
+###########################################################
+# CHANGES TO ADD THE QUATERNION INSIDE THE SIMULATOR
+            action_step = self.denormalize_gripper_actions(actions[i])
+            action_step = self.modif_action(action_step)
+###########################################################
+
+            ts = self.env.step(action_step)
 
             obs = ts.observation
             obs_display = obs.copy()

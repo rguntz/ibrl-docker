@@ -1,0 +1,27 @@
+task_name: "TransferCubeTask"
+rl_camera: "cam_high"
+prop_stack: 1
+episode_length: 200
+stddev_max: 0.1
+bc_policy: "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run2/latest.pt"
+preload_num_data: 50
+preload_datapath: "data/cube_picking_and_placing/tresholded_reward/extended_gripper_dataset_wr_threshold_rewards_dones_shifted_gripper_clipped_clipped_norm_min_max_cut.hdf5"
+num_train_step: 200000
+replay_buffer_size: 1000
+use_wb: 0
+mp_eval: 1 # we run mutlieval for testing. 
+num_eval_episode: 50
+use_state: 0
+q_agent:
+  act_method: "ibrl"
+  use_prop: 1
+  vit:
+    embed_style: "embedTross"
+    depth: 1
+  actor:
+    dropout: 0.5
+    hidden_dim: 1024
+    feature_dim: 128
+  critic:
+    spatial_emb: 1024
+    hidden_dim: 1024

@@ -411,6 +411,19 @@ class TeleopWithServer:
         left_cart, left_quat = self.transform_robot_to_world_frame_qwen(left_state[0:3], self.angle_axis_to_quaternion(left_state), robot_name="left")
         right_cart, right_quat = self.transform_robot_to_world_frame_qwen(right_state[0:3], self.angle_axis_to_quaternion((right_state)), robot_name="right")
 
+        # set the quaternion of both to [1, 0, 0, 0] : 
+        theta = np.deg2rad(-20)  # negative = pitch down
+        half_theta = theta / 2
+        pitch_quat = [
+            np.cos(half_theta),        # w
+            0,                         # x (axis x = 0)
+            np.sin(half_theta),        # y (axis y = 1)
+            0                          # z (axis z = 0)
+        ]
+
+        left_quat = [1, 0, 0, 0]
+        right_quat = pitch_quat
+
         # Concatenate into a single vector: left arm first, then right arm
         full_state_vector = np.concatenate([
             left_cart, left_quat, [left_gripper],
@@ -419,6 +432,12 @@ class TeleopWithServer:
 
         # Apply to MuJoCo ctrl
         self.ts = self.env.step(full_state_vector)
+
+        # rewrite the action took so that the dataset now has actions without the quaternions. 
+        full_state_vector = np.concatenate([
+            left_cart, [left_gripper],
+            right_cart, [right_gripper]
+        ])
 
         # Get the reward after the stepping function. 
         reward = 0.0 if self.ts.reward is None else self.ts.reward
