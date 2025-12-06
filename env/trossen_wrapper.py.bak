@@ -276,30 +276,6 @@ class PixelTrossen:
         return rl_obs, high_res_images
     
 
-    def modif_action(self, action_step) : 
-        # Since the action is only 8 dimensional we need to include the quaternions now : 
-                # set the quaternion of both to [1, 0, 0, 0] : 
-        theta = np.deg2rad(-20)  # negative = pitch down
-        half_theta = theta / 2
-        pitch_quat = [
-            np.cos(half_theta),        # w
-            0,                         # x (axis x = 0)
-            np.sin(half_theta),        # y (axis y = 1)
-            0                          # z (axis z = 0)
-        ]
-
-        left_quat = [1, 0, 0, 0]
-        right_quat = pitch_quat
-
-        action_step = np.concatenate([
-            action_step[:3],
-            left_quat,
-            np.array([action_step[3]]),
-            action_step[4:7],
-            right_quat,
-            np.array([action_step[7]])
-        ])
-        return action_step
     
     def denormalize_gripper_actions(self, actions):
         """
@@ -366,9 +342,8 @@ class PixelTrossen:
             self.time_step += 1
 
 ###########################################################
-# CHANGES TO ADD THE QUATERNION INSIDE THE SIMULATOR
+# DENORMALIZE THE ACTIONS
             action_step = self.denormalize_gripper_actions(actions[i])
-            action_step = self.modif_action(action_step)
 ###########################################################
 
             ts = self.env.step(action_step)
