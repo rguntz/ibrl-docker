@@ -1,4 +1,0 @@
-no shifting : arm doesnt even move a bit. 
-shifting 5 : 6%
-shifting 10 : 10 %, 4 % next time  
-test without speed in prioprio sensor : 6%

@@ -39,7 +39,7 @@ class MainConfig(common_utils.RunConfig):
     image_size: int = -1
     rl_image_size: int = -1
     # log
-    save_dir: str = "exps/bc/run_ee_pos_end_cut"
+    save_dir: str = "exps/bc/run_ee_1"
     use_wb: int = 0
     save_per: int = -1
 

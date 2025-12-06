@@ -19,7 +19,7 @@ import h5py
 
 GRIPPER_MIN = 0.0
 GRIPPER_MAX = 0.04
-GRIPPER_INDICES = [3, 7]
+GRIPPER_INDICES = [7, 15]
 
 # Camera configurations for different tasks
 GOOD_CAMERAS = {
@@ -41,8 +41,8 @@ STATE_SHAPE = {
 }
 
 # Proprioceptive keys: robot0_eef_pos (6) and robot0_eef_quat(8) and robot0_gripper_qpos(2). 
-PROP_KEYS = ["robot0_eef_pos", "robot0_gripper_qpos"]
-PROP_DIM = 8 # 6 for position and 2 for gripper.   
+PROP_KEYS = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
+PROP_DIM = 16 
 
 
 class PixelTrossen:
@@ -122,8 +122,8 @@ class PixelTrossen:
         if self.rl_image_size != self.image_size:
             self.resize_transform = utils.get_rescale_transform((self.rl_image_size, self.rl_image_size))
 
-        # Action dimension: 8 (only position and gripper for the 2 arms)
-        self.action_dim: int = 8
+        # Action dimension: 16 (3d position, 4d quaternion and 1d gripper for both arms)
+        self.action_dim: int = 16
         self._observation_shape: tuple[int, ...] = (3 * obs_stack, rl_image_size, rl_image_size)
         self._state_shape: tuple[int] = (STATE_SHAPE[env_name][0] * state_stack,)
         self.prop_shape: tuple[int] = (PROP_DIM * prop_stack,)
@@ -228,7 +228,7 @@ class PixelTrossen:
 
         ##  ---------------------------------------------
         ## Added initial position of the dataset : 
-        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/new_mujoco/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_2_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
+        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
         with h5py.File(file, "r") as f:
             f_data = f["data"]
 
@@ -267,7 +267,7 @@ class PixelTrossen:
         if self.onscreen_render and self._plt_fig is None:
             self._plt_fig = plt.figure()
             self._plt_imgs = plot_observation_images(obs_display, GOOD_CAMERAS["TransferCubeEETask"])
-
+            
         if self.cond_action > 0:
             past_action = torch.from_numpy(np.stack(self.past_actions)).to(self.device)
             rl_obs["past_action"] = past_action
@@ -275,35 +275,9 @@ class PixelTrossen:
 
         return rl_obs, high_res_images
     
-
-    def modif_action(self, action_step) : 
-        # Since the action is only 8 dimensional we need to include the quaternions now : 
-                # set the quaternion of both to [1, 0, 0, 0] : 
-        theta = np.deg2rad(-20)  # negative = pitch down
-        half_theta = theta / 2
-        pitch_quat = [
-            np.cos(half_theta),        # w
-            0,                         # x (axis x = 0)
-            np.sin(half_theta),        # y (axis y = 1)
-            0                          # z (axis z = 0)
-        ]
-
-        left_quat = [1, 0, 0, 0]
-        right_quat = pitch_quat
-
-        action_step = np.concatenate([
-            action_step[:3],
-            left_quat,
-            np.array([action_step[3]]),
-            action_step[4:7],
-            right_quat,
-            np.array([action_step[7]])
-        ])
-        return action_step
-    
     def denormalize_gripper_actions(self, actions):
         """
-        Denormalize gripper dimensions (indices 3 and 7) from [-1, 1] to [0, 0.04].
+        Denormalize gripper dimensions (indices 7 and 15) from [-1, 1] to [0, 0.04].
         Other action dimensions are unchanged.
 
         Args:
@@ -323,6 +297,35 @@ class PixelTrossen:
 
         actions[..., GRIPPER_INDICES] = grippers_denorm
         return actions
+
+    def clip_action_cartesian_positions(self, action):
+        """
+        Clips the Cartesian positions in a full bimanual action vector to workspace bounds:
+        - x, y ∈ [-0.605, 0.605]
+        - z   ∈ [0.0,   0.4]
+
+        Expected action structure (length = 16):
+        [lx, ly, lz, lqx, lqy, lqz, lqw, lgrip, rx, ry, rz, rqx, rqy, rqz, rqw, rgrip]
+
+        Args:
+            action (array-like): Full action vector with left/right cartesian + quaternion + gripper
+
+        Returns:
+            np.ndarray: Action vector with clipped Cartesian positions
+        """
+        action = np.array(action, copy=True)  # avoid modifying original if not intended
+
+        # Clip left arm (indices 0, 1, 2)
+        action[0] = np.clip(action[0], -0.605, 0.605)
+        action[1] = np.clip(action[1], -0.605, 0.605)
+        action[2] = np.clip(action[2], 0.0,     0.4)
+
+        # Clip right arm (indices 8, 9, 10)
+        action[8] = np.clip(action[8], -0.605, 0.605)
+        action[9] = np.clip(action[9], -0.605, 0.605)
+        action[10] = np.clip(action[10], 0.0,    0.4)
+
+        return action
 
     def step(self, actions: torch.Tensor) -> tuple[dict, float, bool, bool, dict]:
 
@@ -368,7 +371,7 @@ class PixelTrossen:
 ###########################################################
 # CHANGES TO ADD THE QUATERNION INSIDE THE SIMULATOR
             action_step = self.denormalize_gripper_actions(actions[i])
-            action_step = self.modif_action(action_step)
+            action_step = self.clip_action_cartesian_positions(action_step)
 ###########################################################
 
             ts = self.env.step(action_step)
@@ -406,7 +409,17 @@ class PixelTrossen:
                 if self.end_on_success:
                     terminal = True
 
+##################################################
+# TERMINATE THE EPISODE IF THE CUBE FELL OF THE TABLE : 
+            cube_pos = obs["env_state"]
+            z_position = cube_pos[2]
+            if z_position < -0.15 : # meaning the cube is under the table meaning that it fell
+                print("cube fell off the table")
+                terminal = True
+##################################################
+
             if terminal:
+                print("terminal")
                 break
 
         reward = reward * self.env_reward_scale

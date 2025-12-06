@@ -25,7 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-
+    
 import collections
 import os
 
@@ -51,6 +51,10 @@ def sample_box_pose() -> np.ndarray:
     x_range = [-0.1, 0.2]
     y_range = [-0.15, 0.025]
     z_range = [0.0125, 0.0125]
+
+    # x_range = [-0.605 , -0.605]
+    # y_range = [-0.605, -0.605]
+    # z_range = [0.0125, 0.0125]
 
     ranges = np.vstack([x_range, y_range, z_range])
     cube_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
