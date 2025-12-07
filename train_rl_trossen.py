@@ -72,7 +72,7 @@ class MainConfig(common_utils.RunConfig):
     num_train_step: int = 200000
     log_per_step: int = 5000
     # log
-    save_dir: str = "exps/rl/run_ee_pos_end_cut"
+    save_dir: str = "exps/rl/run_ee_pos_end_cut_2"
     use_wb: int = 0
 
     def __post_init__(self): # gets automatically called when initializing the class. 
@@ -322,7 +322,6 @@ class Workspace:
             self.replay.add(obs, reply, reward, terminal, success, image_obs)
 
             if terminal:
-                print("terminal reached")
                 num_episode += 1
                 total_reward += self.train_env.episode_reward
                 if self.replay.size() < self.cfg.num_warm_up_episode:
@@ -367,7 +366,6 @@ class Workspace:
             ### env.step ###
             with stopwatch.time("env step"): # Send the action to the simulator.
                 obs, reward, terminal, success, image_obs = self.train_env.step(action)
-                print("reward : ", reward)
                 #self.train_env.env.render()
                 
 
@@ -523,6 +521,7 @@ def main():
         print("Pretraining")
         workspace.pretrain_policy()
         if not cfg.pretrain_only:
+            # not our case
             print("RL finetuning")
             workspace.train()
     else:

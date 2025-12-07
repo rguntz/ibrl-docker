@@ -11,6 +11,7 @@ replay_buffer_size: 1000
 use_wb: 0
 mp_eval: 10 # we run mutlieval for testing. 
 num_eval_episode: 50
+num_critic_update: 5
 use_state: 0
 q_agent:
   act_method: "ibrl"

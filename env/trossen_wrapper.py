@@ -401,9 +401,6 @@ class PixelTrossen:
             reward += step_reward
             self.episode_reward += step_reward
 
-            reward += step_reward
-            self.episode_reward += step_reward
-
             if step_reward == 1:
                 success = True
                 if self.end_on_success:
@@ -419,8 +416,8 @@ class PixelTrossen:
 ##################################################
 
             if terminal:
-                print("terminal")
                 break
+
 
         reward = reward * self.env_reward_scale
         self.terminal = terminal
