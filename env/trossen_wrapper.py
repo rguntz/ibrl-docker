@@ -327,8 +327,7 @@ class PixelTrossen:
                 del obs['images']
 
             #print("obs are : ", obs)
-    
-                
+     
             step_reward = ts.reward if ts.reward is not None else 0
             terminal = ts.last() # common in dm control. 
             # NOTE: extract images every step for potential obs stacking

@@ -76,6 +76,7 @@ class TrossenAIStationaryTask(base.Task):
         :param action: The action array containing arm and gripper controls.
         :param physics: The MuJoCo physics simulation instance.
         """
+        print("len action inside before step: ", len(action))
         left_arm_action = action[:6]
         right_arm_action = action[8 : 8 + 6]
         normalized_left_gripper_action = action[6]
@@ -99,6 +100,7 @@ class TrossenAIStationaryTask(base.Task):
             ]
         )
         self.counter += 1
+        print("action send : ", len(env_action))
         super().before_step(env_action, physics)
 
     def initialize_episode(self, physics: Physics) -> None:
