@@ -53,7 +53,7 @@ class MainConfig(common_utils.RunConfig):
     bc_policy: str = ""
     # rl with preload data
     mix_rl_rate: float = 1  # 1: only use rl, <1, mix in some bc data
-    preload_num_data: int = 50 #  set to zero to avoid having the demo data initially => set in config file.  
+    preload_num_data: int = 0 
     preload_datapath: str = ""
     freeze_bc_replay: int = 1
     # pretrain rl policy with bc and finetune

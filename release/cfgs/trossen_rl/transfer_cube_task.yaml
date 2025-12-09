@@ -1,17 +1,18 @@
 task_name: "TransferCubeEETask"
-rl_camera: "cam_high"
+rl_camera: "cam_right_wrist"
 prop_stack: 1
 episode_length: 200
 stddev_max: 0.1
-bc_policy: "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run_ee_1/model0.pt"
+bc_policy: "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run_ee_2/model0.pt"
 preload_num_data: 50
-preload_datapath: "data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
+preload_datapath: "data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
+num_warm_up_episode: 40
 num_train_step: 200000
 replay_buffer_size: 1000
 use_wb: 0
-mp_eval: 10 # we run mutlieval for testing. 
+mp_eval: 1 # we run mutlieval for testing. 
 num_eval_episode: 50
-num_critic_update: 5
+# num_critic_update: 5 test with 5 yielded bad results
 use_state: 0
 q_agent:
   act_method: "ibrl"

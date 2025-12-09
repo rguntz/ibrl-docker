@@ -228,7 +228,7 @@ class PixelTrossen:
 
         ##  ---------------------------------------------
         ## Added initial position of the dataset : 
-        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
+        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
         with h5py.File(file, "r") as f:
             f_data = f["data"]
 

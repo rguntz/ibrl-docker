@@ -64,23 +64,10 @@ def process_dataset(input_file, output_file, threshold):
             print(f"\nProcessing demo: {demo_name}")
 
             obs_in = grp_in["obs"]
-            qpos_in = obs_in["qpos"][:]  # Shape: (T, 16)
+            qpos_in = obs_in["qpos"][:]
             T, _ = qpos_in.shape
 
-            if T == 0:
-                print(f"  Warning: empty demo {demo_name}. Skipping.")
-                continue
-
-            # --- 🔸 Normalize gripper dims ONLY for filtering ---
-            qpos_for_filtering = qpos_in.copy()
-            grippers = qpos_for_filtering[:, GRIPPER_INDICES]
-            # Clamp to physical limits (optional but safe)
-            grippers = np.clip(grippers, GRIPPER_MIN, GRIPPER_MAX)
-            # Normalize gripper to [-1, 1] to match scale of other joints (which are typically ~[-π, π] or [-2, 2])
-            grippers_norm = 2 * (grippers - GRIPPER_MIN) / (GRIPPER_MAX - GRIPPER_MIN) - 1
-            qpos_for_filtering[:, GRIPPER_INDICES] = grippers_norm
-
-            kept_idx = filter_demo_states(qpos_for_filtering, threshold)
+            kept_idx = filter_demo_states(qpos_in, threshold)
             if len(kept_idx) == 0:
                 print(f"  Warning: no indices kept for {demo_name}. Skipping.")
                 continue
@@ -93,7 +80,7 @@ def process_dataset(input_file, output_file, threshold):
                 rewards_out = rewards_in[kept_idx]
                 grp_out.create_dataset("rewards", data=rewards_out, compression="gzip")
 
-            # ----- Observations (use ORIGINAL qpos_in, not normalized) -----
+            # ----- Observations -----
             obs_out_grp = grp_out.create_group("obs")
             for key in obs_in.keys():
                 data = obs_in[key]
@@ -119,6 +106,7 @@ def process_dataset(input_file, output_file, threshold):
                         new_grp = grp_out.create_group(key)
                         for k, v in grp_in[key].attrs.items():
                             new_grp.attrs[k] = v
+
 
     print("\nDone. Filtered dataset written to:", output_file)
 
@@ -540,110 +528,20 @@ def truncate_demos_at_k_dones(input_path, output_path, k):
     print(f"\n✅ Truncation complete! Saved to: {output_path}")
     return output_path
 
-def plot_qpos_minus_action_right_arm(file_path, demo_index=0, save_json=True):
-    """
-    Plot (qpos[t] - action[t]) for the right arm (joints 8–15) and save max |diff| per joint.
-    
-    Args:
-        file_path (str/Path): Path to the final HDF5 dataset.
-        demo_index (int): Index of the demo to analyze (default: 0).
-        save_json (bool): Whether to save max values to a JSON file.
-    
-    Returns:
-        dict: Dictionary mapping joint names to max absolute difference.
-    """
-    file_path = Path(file_path)
-    
-    with h5py.File(file_path, "r") as f:
-        data = f["data"]
-        demo_keys = list(data.keys())
-        if not demo_keys:
-            raise ValueError("No demonstrations found.")
-        
-        demo_name = demo_keys[demo_index]
-        demo = data[demo_name]
-        print(f"Plotting qpos[t] - action[t] for right arm of demo: {demo_name}")
-        
-        qpos = demo["obs"]["qpos"][:]    # (T, 16)
-        actions = demo["actions"][:]     # (T, 16)
-        
-        T = qpos.shape[0]
-        if T == 0:
-            raise ValueError("Empty demo.")
-        
-        # Extract right arm (joints 8 to 15)
-        qpos_right = qpos[:, 8:16]        # (T, 8)
-        actions_right = actions[:, 8:16]  # (T, 8)
-        
-        # Compute: qpos[t] - action[t]
-        diff = qpos_right - actions_right  # (T, 8)
-        abs_diff = np.abs(diff)
-        max_abs_diff = np.max(abs_diff, axis=0)  # (8,)
-        
-        time_steps = np.arange(T)
-        n_dims = 8
 
-        # Joint names
-        joint_names = [f"Joint_{8 + i}" for i in range(n_dims)]
-        joint_names[7] = "Gripper_Joint_15"  # for clean JSON keys
-
-        # Plot
-        fig, axes = plt.subplots(n_dims, 1, figsize=(12, 14), sharex=True)
-        if n_dims == 1:
-            axes = [axes]
-        
-        for i in range(n_dims):
-            axes[i].plot(time_steps, diff[:, i], color='blue', linewidth=1.0)
-            # Annotate max absolute value on plot
-            max_val = max_abs_diff[i]
-            axes[i].text(0.98, 0.95, f"max|Δ| = {max_val:.4f}",
-                         transform=axes[i].transAxes,
-                         verticalalignment='top',
-                         horizontalalignment='right',
-                         bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.5),
-                         fontsize=8)
-            axes[i].set_ylabel(f"Joint {8 + i}", fontsize=9)
-            axes[i].grid(True)
-        
-        axes[-1].set_xlabel("Time Step")
-        plt.suptitle(f"Right Arm: qpos[t] − action[t] (Demo: {demo_name})")
-        plt.tight_layout(rect=[0, 0, 1, 0.97])
-        plt.show()
-        
-        # Prepare result dict
-        result = {joint_names[i]: float(max_abs_diff[i]) for i in range(n_dims)}
-        
-        # Print summary
-        print("\n=== Max Absolute |qpos[t] - action[t]| per Right Arm Joint ===")
-        for i in range(n_dims):
-            orig_name = f"Joint {8 + i}"
-            if i == 7:
-                orig_name = "Gripper (Joint 15)"
-            print(f"{orig_name:20s} | Max |Diff| = {max_abs_diff[i]:.6f}")
-        
-        # Optionally save to JSON
-        if save_json:
-            json_path = file_path.parent / f"max_diff_{demo_name}_right_arm.json"
-            with open(json_path, "w") as f_out:
-                json.dump(result, f_out, indent=4)
-            print(f"\n💾 Max values saved to: {json_path}")
-        
-        return result
-
-            
 #######################################################################################################################################################################################
-# # file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1.hdf5"
-# # inspect_right_arm(file_original)
-# # normalize_gripper_in_file(input_path=file_original, output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
-# # inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
-# # process_dataset(input_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5", output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", threshold=0.01)
-# # inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5")
-# # modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
-# # inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
-# # shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", k=3)
-# # inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5")
-# # truncate_demos_at_k_dones(input_path= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5", k = 1)
-# # inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
-plot_qpos_minus_action_right_arm(file_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_after_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
+file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1.hdf5"
+inspect_right_arm(file_original)
+normalize_gripper_in_file(input_path=file_original, output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
+process_dataset(input_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5", output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", threshold=0.01)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5")
+modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
+shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", k=3)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5")
+truncate_demos_at_k_dones(input_path= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5", k = 1)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
+
 
 
