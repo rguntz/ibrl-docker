@@ -528,20 +528,122 @@ def truncate_demos_at_k_dones(input_path, output_path, k):
     print(f"\n✅ Truncation complete! Saved to: {output_path}")
     return output_path
 
+import h5py
+import numpy as np
+import matplotlib.pyplot as plt
+import json
+import os
+
+def plot_right_arm_obs_action_difference(file, output_json="obs_action_diff_stats.json"):
+    with h5py.File(file, "r") as f:
+        f_data = f["data"]
+        demo_keys = sorted(f_data.keys())  # e.g., ['demo_0', 'demo_1', ..., 'demo_49']
+
+        # --- Plot only the first demo ---
+        first_demo_key = demo_keys[0]
+        f_demo_0 = f_data[first_demo_key]
+
+        action = f_demo_0["actions"][:]
+        obs = f_demo_0["obs"]
+
+        robot0_eef_pos = obs["robot0_eef_pos"][:, 3:]
+        robot0_eef_quat = obs["robot0_eef_quat"][:, 4:]
+        robot0_gripper_qpos = obs["robot0_gripper_qpos"][:, 1:]
+
+        right_arm_obs = np.concatenate([robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos], axis=1)
+
+        if action.shape[1] == 8:
+            right_arm_action = action
+        elif action.shape[1] == 16:
+            right_arm_action = action[:, 8:]
+        else:
+            raise ValueError(f"Unexpected action dimension: {action.shape[1]}. Expected 8 or 16.")
+
+        diff_plot = right_arm_obs - right_arm_action
+
+        # Plot
+        T = diff_plot.shape[0]
+        steps = range(T)
+        dim_names = ["EEF X", "EEF Y", "EEF Z", "QX", "QY", "QZ", "QW", "Gripper"]
+
+        fig, axes = plt.subplots(8, 1, figsize=(12, 16), sharex=True)
+        for i in range(8):
+            axes[i].plot(steps, diff_plot[:, i], label=f'{dim_names[i]} (obs - action)', color='purple')
+            axes[i].axhline(0, color='black', linewidth=0.5, linestyle='--')
+            axes[i].set_ylabel(dim_names[i])
+            axes[i].legend(loc='upper right')
+            axes[i].grid(True)
+
+        axes[-1].set_xlabel("Step")
+        plt.suptitle("Right Arm: Observation Minus Action (First Demo Only)")
+        plt.tight_layout(rect=[0, 0, 1, 0.97])
+        plt.show()
+
+        # --- Compute global min/max across ALL demos ---
+        print("\nComputing global min and max of (Observation - Action) across all demos...")
+        global_min = np.full(8, np.inf)
+        global_max = np.full(8, -np.inf)
+
+        for demo_key in demo_keys:
+            demo = f_data[demo_key]
+            action = demo["actions"][:]
+            obs = demo["obs"]
+
+            # Extract right arm observation
+            robot0_eef_pos = obs["robot0_eef_pos"][:, 3:]
+            robot0_eef_quat = obs["robot0_eef_quat"][:, 4:]
+            robot0_gripper_qpos = obs["robot0_gripper_qpos"][:, 1:]
+
+            right_arm_obs = np.concatenate([robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos], axis=1)
+
+            # Extract right arm action
+            if action.shape[1] == 8:
+                right_arm_action = action
+            elif action.shape[1] == 16:
+                right_arm_action = action[:, 8:]
+            else:
+                raise ValueError(f"Unexpected action dimension in {demo_key}: {action.shape[1]}")
+
+            diff = right_arm_obs - right_arm_action  # (T, 8)
+
+            # Update global min/max per dimension
+            global_min = np.minimum(global_min, np.min(diff, axis=0))
+            global_max = np.maximum(global_max, np.max(diff, axis=0))
+
+        # Prepare dictionary for JSON
+        stats = {}
+        for i, name in enumerate(dim_names):
+            stats[name] = {
+                "min": float(global_min[i]),
+                "max": float(global_max[i])
+            }
+
+        # Save to JSON
+        with open(output_json, 'w') as f_out:
+            json.dump(stats, f_out, indent=4)
+
+        print(f"\nGlobal min/max saved to: {os.path.abspath(output_json)}")
+
+        # Also print to console
+        print("\nGlobal Min and Max of (Observation - Action) across ALL demos:")
+        print("-" * 65)
+        for name in dim_names:
+            print(f"{name:8}: min = {stats[name]['min']: .6f}, max = {stats[name]['max']: .6f}")
+
 
 #######################################################################################################################################################################################
-file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1.hdf5"
-inspect_right_arm(file_original)
-normalize_gripper_in_file(input_path=file_original, output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
-process_dataset(input_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5", output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", threshold=0.01)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5")
-modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
-shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", k=3)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5")
-truncate_demos_at_k_dones(input_path= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5", k = 1)
+# file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1.hdf5"
+# inspect_right_arm(file_original)
+# normalize_gripper_in_file(input_path=file_original, output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
+# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
+# process_dataset(input_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5", output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", threshold=0.01)
+# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5")
+# modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
+# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
+# shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", k=3)
+# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5")
+# truncate_demos_at_k_dones(input_path= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5", k = 1)
 inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
-
+plot_right_arm_obs_action_difference(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
 
 

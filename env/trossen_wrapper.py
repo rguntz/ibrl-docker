@@ -141,6 +141,11 @@ class PixelTrossen:
         self.past_obses = defaultdict(list)
         self.past_actions = deque(maxlen=self.cond_action)
 
+####################################################################
+        self.outside_counter = 0
+        self.OUTSIDE_THRESHOLD = 5
+####################################################################
+
     @property
     def observation_shape(self):
         """Get the shape of the observation: pixel or state."""
@@ -327,6 +332,61 @@ class PixelTrossen:
 
         return action
 
+
+    def cube_outside_initial_box(self):
+        terminal = False
+
+        # Define all collision geom names that belong to the red cube
+        RED_CUBE_GEOMS = {"subcube1", "subcube2", "subcube3", "subcube4"}
+        GRIPPER_GEOM = "right/gripper_follower_left"
+
+        # Build set of contact pairs
+        contact_pairs = set()
+        for i in range(self.env.physics.data.ncon):
+            g1_id = self.env.physics.data.contact[i].geom1
+            g2_id = self.env.physics.data.contact[i].geom2
+            g1_name = self.env.physics.model.id2name(g1_id, "geom")
+            g2_name = self.env.physics.model.id2name(g2_id, "geom")
+            if g1_name and g2_name:
+                contact_pairs.add((g1_name, g2_name))
+                contact_pairs.add((g2_name, g1_name))
+
+        # Check if ANY red cube geom touches the right gripper
+        touch_right_gripper = any(
+            (cube_geom, GRIPPER_GEOM) in contact_pairs
+            for cube_geom in RED_CUBE_GEOMS
+        )
+
+        obs = self.env.task.get_observation(self.env.physics)
+        env_state = obs["env_state"]
+        cube_x_y = env_state[:3]
+
+        x_range = [-0.1, 0.2]
+        y_range = [-0.15, 0.025]
+
+        # Check if cube is outside allowed zone and not touching gripper
+        outside_zone = (
+            (cube_x_y[0] < x_range[0] or cube_x_y[0] > x_range[1]) or
+            (cube_x_y[1] < y_range[0] or cube_x_y[1] > y_range[1])
+        ) and not touch_right_gripper and cube_x_y[2] <= 0.015
+
+        if outside_zone:
+            print("outside zone")
+            self.outside_counter += 1
+            print(f"Cube outside limits: {self.outside_counter}/{self.OUTSIDE_THRESHOLD}")
+        else:
+            # Reset counter if cube comes back inside
+            self.outside_counter = 0
+
+        # Trigger terminal only if outside for 5 consecutive checks
+        if self.outside_counter >= self.OUTSIDE_THRESHOLD:
+            print("Cube has been outside for too long, restart episode")
+            terminal = True
+            self.outside_counter = 0  # reset counter after triggering
+
+        return terminal
+
+
     def step(self, actions: torch.Tensor) -> tuple[dict, float, bool, bool, dict]:
 
         """
@@ -406,14 +466,10 @@ class PixelTrossen:
                 if self.end_on_success:
                     terminal = True
 
-##################################################
-# TERMINATE THE EPISODE IF THE CUBE FELL OF THE TABLE : 
-            cube_pos = obs["env_state"]
-            z_position = cube_pos[2]
-            if z_position < -0.15 : # meaning the cube is under the table meaning that it fell
-                print("cube fell off the table")
+######################################################
+            if self.cube_outside_initial_box() : 
                 terminal = True
-##################################################
+######################################################
 
             if terminal:
                 break

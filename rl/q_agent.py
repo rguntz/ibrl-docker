@@ -155,7 +155,7 @@ class QAgent(nn.Module):
 
     def _encode(self, obs: dict[str, torch.Tensor], augment: bool) -> torch.Tensor:
         """This function encodes the observation into feature tensor."""
-        data = obs[self.rl_camera].float()
+        data = obs[self.rl_camera].float() # here we encode only the RL camera. 
         if augment:
             data = self.aug(data)
         return self.encoder.forward(data, flatten=False)

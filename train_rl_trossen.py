@@ -72,7 +72,7 @@ class MainConfig(common_utils.RunConfig):
     num_train_step: int = 200000
     log_per_step: int = 5000
     # log
-    save_dir: str = "exps/rl/run_ee_pos_end_cut_2"
+    save_dir: str = "exps/rl/run_ee_end_cut_clipped_action"
     use_wb: int = 0
 
     def __post_init__(self): # gets automatically called when initializing the class. 
@@ -351,7 +351,6 @@ class Workspace:
             #self.warm_up_with_checkpointing()
             print("finished the warmup")
 
-
         stopwatch = common_utils.Stopwatch()
         obs, _ = self.train_env.reset() # reset the env 
         self.replay.new_episode(obs)
@@ -367,7 +366,6 @@ class Workspace:
             with stopwatch.time("env step"): # Send the action to the simulator.
                 obs, reward, terminal, success, image_obs = self.train_env.step(action)
                 #self.train_env.env.render()
-                
 
             with stopwatch.time("add"): # Save the transition into the replay buffer.
                 assert isinstance(terminal, bool)

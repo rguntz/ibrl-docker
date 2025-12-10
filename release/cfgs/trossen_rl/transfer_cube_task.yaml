@@ -3,7 +3,7 @@ rl_camera: "cam_right_wrist"
 prop_stack: 1
 episode_length: 200
 stddev_max: 0.1
-bc_policy: "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run_ee_2/model0.pt"
+bc_policy: "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run_ee_treshold_before_norm_gripper/model0.pt"
 preload_num_data: 50
 preload_datapath: "data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
 num_warm_up_episode: 40

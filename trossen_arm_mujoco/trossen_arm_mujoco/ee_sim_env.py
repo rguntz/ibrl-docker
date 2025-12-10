@@ -84,11 +84,6 @@ class TrossenAIStationaryEETask(base.Task):
         np.copyto(physics.data.mocap_pos[1], action_right[:3])
         np.copyto(physics.data.mocap_quat[1], action_right[3:7])
 
-        # physics.data.qpos[6] = action_left[7] # gripper opening and closing position left one
-        # physics.data.qpos[7] = action_left[7] # symetrical opening and closing for gripper left one
-        # physics.data.qpos[14] = action_right[7] # right one
-        # physics.data.qpos[15] = action_right[7] # right one
-
         # Use actuators instead of direct position control
         physics.data.ctrl[0] = action_left[7]  # left gripper motor
         physics.data.ctrl[1] = action_right[7] # right gripper motor
