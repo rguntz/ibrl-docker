@@ -274,6 +274,37 @@ class TransferCubeEETask(TrossenAIStationaryEETask):
             return 1
         return 0
 
+def sample_random_action():
+    # === Left arm EE position: within LEFT arm workspace ===
+    left_x = np.random.uniform(-1.1575, 0.2425)   # x ∈ [base_x - 0.7, base_x + 0.7]
+    left_y = np.random.uniform(-0.719, 0.681)     # y ∈ [base_y - 0.7, base_y + 0.7]
+    left_z = np.random.uniform(0.0, 0.72)         # z ∈ [0, base_z + 0.7]
+
+    # === Right arm EE position: within RIGHT arm workspace ===
+    right_x = np.random.uniform(-0.2425, 1.1575)
+    right_y = np.random.uniform(-0.719, 0.681)    # same y range (same base y)
+    right_z = np.random.uniform(0.0, 0.72)
+
+    # === Quaternions: as per your request, sample in [-0.1, 0.1]
+    # (Note: these are NOT unit quaternions! Only use if env treats them as deltas)
+    left_quat = np.random.uniform(-0.1, 0.1, 4)
+    right_quat = np.random.uniform(-0.1, 0.1, 4)
+
+    # === Grippers: keep in [-0.1, 0.1]
+    left_gripper = np.random.uniform(-0.1, 0.1)
+    right_gripper = np.random.uniform(-0.1, 0.1)
+
+    # === Assemble action ===
+    action = np.array([
+        left_x, left_y, left_z,
+        *left_quat,
+        left_gripper,
+        right_x, right_y, right_z,
+        *right_quat,
+        right_gripper
+    ], dtype=np.float32)
+
+    return action
 
 def test_ee_sim_env():
     onscreen_render = True
@@ -294,7 +325,7 @@ def test_ee_sim_env():
         plt_imgs = plot_observation_images(ts.observation, cam_list)
 
     for t in range(1000):
-        action = np.random.uniform(-0.1, 0.1, 16)
+        action = sample_random_action()
         ts = env.step(action)
         episode.append(ts)
         if onscreen_render:
@@ -404,4 +435,6 @@ def plotting_sim_teleop_with_dataset(dataset_path = "/home/qtf5422/Desktop/AIRE/
 
 
 if __name__ == "__main__":
+    test_ee_sim_env()
+
     plotting_sim_teleop_with_dataset(dataset_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee_pos/new_mujoco/dataset.hdf5", demo_name="demo_0")
