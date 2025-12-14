@@ -21,6 +21,19 @@ GRIPPER_MIN = 0.0
 GRIPPER_MAX = 0.04
 GRIPPER_INDICES = [7, 15]
 
+# Bounds used during normalization (must match exactly)
+LEFT_POS_BOUNDS = [
+    (-1.16, 0.24),  # x
+    (-0.72, 0.68),  # y
+    (0.00, 0.72),   # z
+]
+
+RIGHT_POS_BOUNDS = [
+    (-0.24, 1.16),  # x
+    (-0.72, 0.68),  # y
+    (0.00, 0.72),   # z
+]
+
 # Camera configurations for different tasks
 GOOD_CAMERAS = {
     "TransferCubeEETask": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
@@ -233,7 +246,7 @@ class PixelTrossen:
 
         ##  ---------------------------------------------
         ## Added initial position of the dataset : 
-        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
+        file = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5"
         with h5py.File(file, "r") as f:
             f_data = f["data"]
 
@@ -280,27 +293,47 @@ class PixelTrossen:
 
         return rl_obs, high_res_images
     
-    def denormalize_gripper_actions(self, actions):
+    def denormalize_actions(self, actions):
         """
-        Denormalize gripper dimensions (indices 7 and 15) from [-1, 1] to [0, 0.04].
-        Other action dimensions are unchanged.
-
+        Denormalize 16-D actions from [-1, 1] back to physical units:
+        
+        - Left EE (0,1,2): [-1,1] → original meters using LEFT_POS_BOUNDS
+        - Right EE (8,9,10): [-1,1] → original meters using RIGHT_POS_BOUNDS
+        - Grippers (7,15): [-1,1] → [0.0, 0.04]
+        
+        Quaternions (4–7, 12–15) are assumed unchanged and left as-is.
+        
         Args:
-            actions (np.ndarray): Shape (..., 8), grippers assumed in [-1, 1]
-
+            actions (np.ndarray): Shape (..., 16), with normalized values in [-1, 1]
+        
         Returns:
-            np.ndarray: Same shape, with grippers in [0, 0.04]
+            np.ndarray: Same shape, with positions and grippers in physical units.
         """
         actions = np.array(actions, copy=True)
-        grippers = actions[..., GRIPPER_INDICES]
+        original_shape = actions.shape
+        actions = actions.reshape(-1, 16)
 
-        # Denormalize: [-1, 1] → [0, 0.04]
-        grippers_denorm = (grippers + 1) / 2 * (GRIPPER_MAX - GRIPPER_MIN) + GRIPPER_MIN
+        # --- Denormalize left arm EE (indices 0,1,2) ---
+        for i in range(3):
+            low, high = LEFT_POS_BOUNDS[i]
+            # [-1, 1] → [low, high]
+            actions[:, i] = (actions[:, i] + 1) / 2 * (high - low) + low
 
-        # Optional: clamp to [0, 0.04] to handle numerical errors
-        grippers_denorm = np.clip(grippers_denorm, GRIPPER_MIN, GRIPPER_MAX)
+        # --- Denormalize right arm EE (indices 8,9,10) ---
+        right_indices = [8, 9, 10]
+        for i, idx in enumerate(right_indices):
+            low, high = RIGHT_POS_BOUNDS[i]
+            actions[:, idx] = (actions[:, idx] + 1) / 2 * (high - low) + low
 
-        actions[..., GRIPPER_INDICES] = grippers_denorm
+        # --- Denormalize grippers (indices 7 and 15) ---
+        for grip_idx in GRIPPER_INDICES:
+            # [-1, 1] → [0.0, 0.04]
+            grippers = actions[:, grip_idx]
+            grippers_denorm = (grippers + 1) / 2 * (GRIPPER_MAX - GRIPPER_MIN) + GRIPPER_MIN
+            actions[:, grip_idx] = np.clip(grippers_denorm, GRIPPER_MIN, GRIPPER_MAX)
+
+        # Restore original shape
+        actions = actions.reshape(original_shape)
         return actions
 
     def clip_action_cartesian_positions(self, action):
@@ -429,9 +462,8 @@ class PixelTrossen:
             self.time_step += 1
 
 ###########################################################
-# CHANGES TO ADD THE QUATERNION INSIDE THE SIMULATOR
-            action_step = self.denormalize_gripper_actions(actions[i])
-            action_step = self.clip_action_cartesian_positions(action_step)
+# DENORMALIZE THE POSITION AND GRIPPER : 
+            action_step = self.denormalize_actions(actions[i])
 ###########################################################
 
             ts = self.env.step(action_step)

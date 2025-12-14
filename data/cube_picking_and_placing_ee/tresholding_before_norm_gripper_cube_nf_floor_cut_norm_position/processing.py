@@ -630,20 +630,120 @@ def plot_right_arm_obs_action_difference(file, output_json="obs_action_diff_stat
         for name in dim_names:
             print(f"{name:8}: min = {stats[name]['min']: .6f}, max = {stats[name]['max']: .6f}")
 
+def normalize(input_path, output_path):
+    """
+    Normalize 16-D actions in the dataset as follows:
+
+    Left arm (indices 0–7):
+      - EE position (0,1,2):
+          x ∈ [–1.16, +0.24]
+          y ∈ [–0.72, +0.68]
+          z ∈ [ 0.00,  0.72]
+      - Gripper (3): [0.0, 0.04] → [-1, 1]
+
+    Right arm (indices 8–15):
+      - EE position (8,9,10):
+          x ∈ [–0.24, +1.16]
+          y ∈ [–0.72, +0.68]
+          z ∈ [ 0.00,  0.72]
+      - Gripper (11): [0.0, 0.04] → [-1, 1]
+
+    Quaternions (indices 4–7 and 12–15) are left unchanged.
+    """
+
+    GRIPPER_MIN = 0.0
+    GRIPPER_MAX = 0.04
+
+    # Left arm EE bounds (indices 0=x, 1=y, 2=z)
+    LEFT_POS_BOUNDS = [
+        (-1.16, 0.24),  # x
+        (-0.72, 0.68),  # y
+        (0.00, 0.72),   # z
+    ]
+
+    # Right arm EE bounds (indices 8=x, 9=y, 10=z)
+    RIGHT_POS_BOUNDS = [
+        (-0.24, 1.16),  # x
+        (-0.72, 0.68),  # y
+        (0.00, 0.72),   # z
+    ]
+
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+        # Copy root-level attributes
+        for k, v in fin.attrs.items():
+            fout.attrs[k] = v
+
+        # Process 'data' group
+        data_in = fin["data"]
+        data_out = fout.create_group("data")
+        for k, v in data_in.attrs.items():
+            data_out.attrs[k] = v
+
+        for demo_name in data_in.keys():
+            demo_in = data_in[demo_name]
+            demo_out = data_out.create_group(demo_name)
+
+            # Copy all keys except 'actions'
+            for key in demo_in.keys():
+                if key == "actions":
+                    continue
+                if isinstance(demo_in[key], h5py.Dataset):
+                    demo_out.create_dataset(key, data=demo_in[key][:], compression="gzip")
+                else:
+                    demo_in.copy(key, demo_out)
+
+            # Load and normalize actions (always 16-D)
+            actions = demo_in["actions"][:]
+            T, D = actions.shape
+            if D != 16:
+                raise ValueError(f"Expected 16-dimensional actions, but got shape {actions.shape}.")
+            
+            actions_norm = actions.copy()
+
+            # --- Normalize left arm ---
+            for i in range(3):  # pos dims: 0,1,2
+                low, high = LEFT_POS_BOUNDS[i]
+                pos_vals = np.clip(actions_norm[:, i], low, high)
+                actions_norm[:, i] = 2 * (pos_vals - low) / (high - low) - 1
+
+            # Left gripper (index GRIPPER_INDICES[0])
+            grip_vals = np.clip(actions_norm[:, GRIPPER_INDICES[0]], GRIPPER_MIN, GRIPPER_MAX)
+            actions_norm[:, GRIPPER_INDICES[0]] = 2 * (grip_vals - GRIPPER_MIN) / (GRIPPER_MAX - GRIPPER_MIN) - 1
+
+            # --- Normalize right arm ---
+            right_pos_indices = [8, 9, 10]
+            for i, idx in enumerate(right_pos_indices):
+                low, high = RIGHT_POS_BOUNDS[i]
+                pos_vals = np.clip(actions_norm[:, idx], low, high)
+                actions_norm[:, idx] = 2 * (pos_vals - low) / (high - low) - 1
+
+            # Right gripper (index GRIPPER_INDICES[1])
+            grip_vals = np.clip(actions_norm[:, GRIPPER_INDICES[1]], GRIPPER_MIN, GRIPPER_MAX)
+            actions_norm[:, GRIPPER_INDICES[1]] = 2 * (grip_vals - GRIPPER_MIN) / (GRIPPER_MAX - GRIPPER_MIN) - 1
+
+            # Save normalized actions
+            demo_out.create_dataset("actions", data=actions_norm, compression="gzip")
+
+    print(f"✅ Normalization complete (16-D actions with asymmetric EE bounds)!")
+    print(f"Input:  {input_path}")
+    print(f"Output: {output_path}")
 
 ######################################################################################################################################################################################
-file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1.hdf5"
+file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1.hdf5"
 inspect_right_arm(file_original)
-normalize_gripper_in_file(input_path=file_original, output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5")
-process_dataset(input_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper.hdf5", output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", threshold=0.01)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5")
-modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5")
-shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", k=3)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5")
-truncate_demos_at_k_dones(input_path= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5", k = 1)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
-plot_right_arm_obs_action_difference(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
+normalize(input_path=file_original, output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper.hdf5")
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper.hdf5")
+process_dataset(input_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper.hdf5", output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded.hdf5", threshold=0.01)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded.hdf5")
+modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr.hdf5")
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr.hdf5")
+shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", k=3)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5")
+truncate_demos_at_k_dones(input_path= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5", k = 1)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
+plot_right_arm_obs_action_difference(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5")
 
 

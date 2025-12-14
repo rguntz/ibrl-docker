@@ -1,5 +1,5 @@
 dataset:
-  path: data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5
+  path: data/cube_picking_and_placing_ee/tresholding_before_norm_gripper_cube_nf_floor_cut_norm_position/dataset_1_norm_gripper_tresholded_wr_shifted_end_cut.hdf5
   rl_camera: "cam_high" #+cam_low+cam_left_wrist+cam_right_wrist"  
 policy:
   use_prop: 1
