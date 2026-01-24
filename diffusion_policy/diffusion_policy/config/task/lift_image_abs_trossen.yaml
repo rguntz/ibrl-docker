@@ -1,0 +1,58 @@
+name: lift_image
+
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    cam_high_image:
+      shape: [3, 128, 128]
+      type: rgb
+    # cam_right_wrist_image:
+    #   shape: [3, 128, 128]
+    #   type: rgb
+    robot0_eef_pos:
+      shape: [6]
+      # type default: low_dim
+    robot0_eef_quat:
+      shape: [8]
+    robot0_gripper_qpos:
+      shape: [2]
+  action: 
+    shape: [20]
+
+task_name: &task_name lift
+dataset_type: &dataset_type ph
+dataset_path: &dataset_path /home/qtf5422/Desktop/AIRE/ibrl-docker/diffusion_policy/diffusion_policy/data/trossen/50_demos_multi_task/dataset_shifted_norm_gripper_tresholded_wr_end_cut_angle_axis_image_transposed_task_renamed_demo_reordered.hdf5 # abs for absolute actions. 
+abs_action: &abs_action True # uses absolute actions in the config. 
+
+env_runner:
+  _target_: diffusion_policy.env_runner.multi_process_trossen_image_runner.MultiprocessTrossenImageRunner
+  shape_meta: *shape_meta
+  n_test: 50
+  test_start_seed: 100000
+  # use python's eval function as resolver, single-quoted string as argument
+  max_steps: ${eval:'500 if "${task.dataset_type}" == "mh" else 200'}
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  render_obs_key: 'cam_high_image'
+  fps: 10
+  crf: 22
+  past_action: ${past_action_visible}
+  abs_action: *abs_action
+  tqdm_interval_sec: 1.0
+  xml_path : "trossen_ai_scene_task_2.xml"
+# evaluation at this config requires a 16 core 64GB instance.
+
+dataset:
+  _target_: diffusion_policy.dataset.robomimic_replay_image_dataset.RobomimicReplayImageDataset
+  shape_meta: *shape_meta
+  dataset_path: *dataset_path
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  abs_action: *abs_action
+  rotation_rep: 'rotation_6d'
+  use_legacy_normalizer: False
+  use_cache: True
+  seed: 42
+  val_ratio: 0.02

@@ -111,25 +111,51 @@ class Actor(nn.Module):
             self.compress.apply(utils.orth_weight_init)
             self.policy.apply(utils.orth_weight_init)
 
+    #######################################################################
+    # CHANGED FORWARD METHOD TO SCALE BACK TO THE ROBOT LIMIT OF ACTUATION. 
     def forward(self, obs: dict[str, torch.Tensor], std: float):
+        # 1️⃣ Extract features
         if isinstance(self.compress, SpatialEmb):
             feat = self.compress.forward(obs["feat"], obs["prop"])
         else:
             feat = obs["feat"].flatten(1, -1)
             feat = self.compress(feat)
 
+        # 2️⃣ Concatenate with prop if exists
         all_input = [feat]
         if self.prop_dim > 0:
             prop = obs["prop"]
             all_input.append(prop)
 
         policy_input = torch.cat(all_input, dim=-1)
+
+        # 3️⃣ Pass through policy network
         mu: torch.Tensor = self.policy(policy_input)
 
-        if self.cfg.max_action_norm > 0:
-            mu = utils.clip_action_norm(mu, self.cfg.max_action_norm)
+        # -------------------------------
+        # 4️⃣ SCALE LEFT AND RIGHT ARM SAFELY (out-of-place)
+        mu_scaled = mu.clone()  # create a new tensor for scaling
 
-        return utils.TruncatedNormal(mu, std, max_action_norm=self.cfg.max_action_norm)
+        # Left arm indices 0,1,2
+        left_bounds = {"x": [-1.16, 0.24], "y": [-0.72, 0.68], "z": [0.0, 0.72]}
+        mu_scaled[:, 0] = left_bounds["x"][0] + (mu[:, 0] + 1) / 2 * (left_bounds["x"][1] - left_bounds["x"][0])
+        mu_scaled[:, 1] = left_bounds["y"][0] + (mu[:, 1] + 1) / 2 * (left_bounds["y"][1] - left_bounds["y"][0])
+        mu_scaled[:, 2] = left_bounds["z"][0] + (mu[:, 2] + 1) / 2 * (left_bounds["z"][1] - left_bounds["z"][0])
+
+        # Right arm indices 8,9,10
+        right_bounds = {"x": [-0.24, 1.16], "y": [-0.72, 0.68], "z": [0.0, 0.72]}
+        mu_scaled[:, 8] = right_bounds["x"][0] + (mu[:, 8] + 1) / 2 * (right_bounds["x"][1] - right_bounds["x"][0])
+        mu_scaled[:, 9] = right_bounds["y"][0] + (mu[:, 9] + 1) / 2 * (right_bounds["y"][1] - right_bounds["y"][0])
+        mu_scaled[:, 10] = right_bounds["z"][0] + (mu[:, 10] + 1) / 2 * (right_bounds["z"][1] - right_bounds["z"][0])
+        # -------------------------------
+
+        # 5️⃣ Optional max norm clipping
+        if self.cfg.max_action_norm > 0:
+            mu_scaled = utils.clip_action_norm(mu_scaled, self.cfg.max_action_norm)
+
+        # 6️⃣ Return as TruncatedNormal distribution
+        return utils.TruncatedNormal(mu_scaled, std, max_action_norm=self.cfg.max_action_norm)
+
 
 
 @dataclass

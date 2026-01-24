@@ -8,9 +8,7 @@ import numpy as np
 from env.trossen_wrapper import DEFAULT_STATE_KEYS, STATE_KEYS, PROP_KEYS
 from common_utils import rela
 from common_utils import ibrl_utils as utils
-
-
-
+import psutil
 
 class Batch:
     def __init__(self, obs, next_obs, action, reward, bootstrap):
@@ -46,7 +44,6 @@ class ReplayBuffer:
         save_dir=None,
     ):
         self.replay_size = replay_size
-
         self.episode = rela.Episode(nstep, max_episode_length, gamma)
         self.replay = rela.SingleStepTransitionReplay(
             frame_stack=frame_stack,
@@ -115,7 +112,7 @@ class ReplayBuffer:
 
     def _push_episode(self, success):
         transition = self.episode.pop_transition()
-        self.replay.add(transition)
+        self.replay.add(transition)  # <-- crash happens here
         self.num_episode += 1
 
         if not success:
@@ -155,7 +152,7 @@ class ReplayBuffer:
         size = episodes.seq_len.size(0)
         with h5py.File(filename, "w") as hf:
             data_grp = hf.create_group("data")
-            for i in range(size):       
+            for i in range(size):
                 ep_data_grp = data_grp.create_group(f"demo_{i}")
                 episode_len = int(episodes.seq_len[i].item())
                 # print(f"episode {i}: len: {episode_len}")
@@ -207,11 +204,14 @@ def add_demos_to_replay(
     num_episode: int = len(list(f["data"].keys()))  # type: ignore
     print(f"loading first {num_data} episodes from {data_path}")
     print(f"Raw Dataset size updated 2 (#episode): {num_episode}")
+    print("cameras : ", rl_cameras)
+    print("obs_stack : ", obs_stack)
 
     all_actions = []
     for episode_id in range(num_episode):
+
         if num_data > 0 and episode_id >= num_data:
-            break               
+            break            
 
         episode_tag = f"demo_{episode_id}"
         episode = f[f"data/{episode_tag}"]
@@ -286,12 +286,13 @@ def add_demos_to_replay(
             success = bool(rewards[action_idx] == 1)
             terminal = bool(terminals[action_idx])
 
-            replay.add(obs, reply, reward, terminal, success, image_obs={})
+            replay.add(obs, reply, reward, terminal, success, image_obs={})    
 
             if success:
                 assert terminal
             if terminal:
                 break
+
 
     print(f"Size of the replay buffer: {replay.size()}, # success: {replay.num_success}")
     if replay.bc_replay is not None:

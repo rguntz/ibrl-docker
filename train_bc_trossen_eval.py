@@ -12,7 +12,7 @@ import common_utils
 from bc.dataset_trossen import DatasetConfig, RobomimicDataset
 from bc.bc_policy import StateBcPolicy, StateBcPolicyConfig
 from bc.bc_policy import BcPolicy, BcPolicyConfig
-from evaluate import run_eval_mp
+from evaluate import run_eval_mp, run_single_eval_mp
 #from env.robosuite_wrapper import PixelRobosuite
 from env.trossen_wrapper import PixelTrossen
 
@@ -39,7 +39,7 @@ class MainConfig(common_utils.RunConfig):
     image_size: int = -1
     rl_image_size: int = -1
     # log
-    save_dir: str = "exps/bc/run1"
+    save_dir: str = "exps/bc/run2"
     use_wb: int = 0
     save_per: int = -1
 
@@ -50,7 +50,9 @@ class MainConfig(common_utils.RunConfig):
 
 def run(cfg: MainConfig, policy):
     print("init the dataset : ")
+    print("cfg.dataset", cfg.dataset)
     dataset = RobomimicDataset(cfg.dataset)
+    
     print("finished init dataset")
     if not cfg.dataset.real_data:
         cfg.task_name = dataset.cfg.task_name
@@ -102,9 +104,11 @@ def run(cfg: MainConfig, policy):
     writer = SummaryWriter(log_dir=os.path.join(cfg.save_dir, "tensorboard"))
    
     # eval the best performing model again
-    best_model = "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run1/latest.pt"
-    policy.load_state_dict(torch.load(best_model))
-    scores = evaluate(policy, dataset, num_game=100, seed=1)
+    best_model = "/home/qtf5422/Desktop/AIRE/ibrl-docker/exps/bc/run2/latest.pt"
+    #policy.load_state_dict(torch.load(best_model))
+    policy = load_model(best_model, device ="cuda")[0]
+    print("Loaded policy type:", type(policy))
+    scores = evaluate(policy, dataset, num_game=1, seed=1)
     stat["best_ckpt_score"].append(np.mean(scores))
     stat.summary(cfg.num_epoch)
 
@@ -115,9 +119,9 @@ def run(cfg: MainConfig, policy):
     assert False
 
 
-def evaluate(policy, dataset: RobomimicDataset, seed, num_game):
-    return run_eval_mp(
-        dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=1, verbose=False
+def evaluate(policy, dataset: RobomimicDataset, num_game, seed):
+    return run_single_eval_mp(
+        dataset.env_params, policy, num_game=num_game, seed=seed, verbose=False
         #  num_proc stands for number of processes. 
     )
 
@@ -135,6 +139,7 @@ def _load_model(weight_file, env: PixelTrossen, device, cfg: Optional[MainConfig
         policy = BcPolicy(
             env.observation_shape, env.prop_shape, env.action_dim, env.rl_cameras, cfg.policy
         )
+        print("cfg policy is : ", cfg.policy)
     policy.load_state_dict(torch.load(weight_file))
     return policy.to(device)
 
@@ -143,7 +148,7 @@ def _load_model(weight_file, env: PixelTrossen, device, cfg: Optional[MainConfig
 def load_model(weight_file, device, *, verbose=True):
     run_folder = os.path.dirname(weight_file)
     cfg_path = os.path.join(run_folder, f"cfg.yaml")
-    print("the config path is : ", cfg_path)
+    print("the config path is from trossen bc : ", cfg_path)
     if verbose:
         print(common_utils.wrap_ruler("config of loaded agent"))
         with open(cfg_path, "r") as f:
@@ -171,8 +176,10 @@ def load_model(weight_file, device, *, verbose=True):
     env = PixelTrossen(**env_params)  # type: ignore
 
     if cfg.dataset.use_state:
+        print("using state")
         print(f"state_stack: {cfg.dataset.state_stack}, observation shape: {env.observation_shape}")
     else:
+        print("not using state")
         print(f"obs_stack: {cfg.dataset.obs_stack}, observation shape: {env.observation_shape}")
 
     policy = _load_model(weight_file, env, device, cfg)

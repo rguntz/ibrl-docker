@@ -156,7 +156,7 @@ class SpatialEmbQNet(nn.Module):
         else:
             z = torch.cat((z, prop, action), dim=-1)
 
-        q = self.q(z).squeeze(-1)
+        q = self.q(z).squeeze(-1) # this devide the output into 2 elements, meaning that the Q policy outputs 2 Q values for each of the 2 actions. 
         return q
 
 

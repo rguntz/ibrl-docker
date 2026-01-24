@@ -149,7 +149,7 @@ def run(cfg: MainConfig, policy):
         # eval the best performing model again
         best_model = saver.get_best_model()
         policy.load_state_dict(torch.load(best_model))
-        scores = evaluate(policy, dataset, num_game=100, seed=1)
+        scores = evaluate(policy, dataset, num_game=1, seed=1)
         stat["best_ckpt_score"].append(np.mean(scores))
         stat.summary(cfg.num_epoch)
 
@@ -157,7 +157,7 @@ def run(cfg: MainConfig, policy):
     assert False
 
 
-def evaluate(policy, dataset: RobomimicDataset, seed, num_game):
+def evaluate(policy, dataset: RobomimicDataset, num_game, seed):
     return run_eval_mp(
         dataset.env_params, policy, num_game=num_game, seed=seed, num_proc=10, verbose=False
     )

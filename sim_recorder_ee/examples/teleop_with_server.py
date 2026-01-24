@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 import json
 from trossen_arm_mujoco.utils import make_sim_env
-from trossen_arm_mujoco.ee_sim_env import TransferCubeEETask
+from trossen_arm_mujoco.ee_sim_env import TransferCubeEETask_dexterous as TransferCubeEETask
 from trossen_arm_mujoco.utils import (
     get_observation_base,
     make_sim_env,
@@ -27,6 +27,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+REAL_DATA = False  
 
 class TeleopWithServer:
     def __init__(self, 
@@ -110,8 +111,8 @@ class TeleopWithServer:
             task_name="sim_transfer_cube",
             onscreen_render=onscreen_render,
             cam_list=self.cam_list,
+            xml_file = "trossen_ai_scene_task_2.xml", 
         )
-
 
         # Check server connection
         print(f"🌐 Connecting to server at {self.server_url}...")
@@ -383,7 +384,7 @@ class TeleopWithServer:
             q = rot.as_quat()  # Returns [x, y, z, w]
             # Convert to [w, x, y, z]
             return np.array([q[3], q[0], q[1], q[2]])
-        
+
 
     def _teleop_step(self):
         """Single teleop step - shared between viewer and headless modes"""
@@ -411,18 +412,7 @@ class TeleopWithServer:
         left_cart, left_quat = self.transform_robot_to_world_frame_qwen(left_state[0:3], self.angle_axis_to_quaternion(left_state), robot_name="left")
         right_cart, right_quat = self.transform_robot_to_world_frame_qwen(right_state[0:3], self.angle_axis_to_quaternion((right_state)), robot_name="right")
 
-        # set the quaternion of both to [1, 0, 0, 0] : 
-        theta = np.deg2rad(-20)  # negative = pitch down
-        half_theta = theta / 2
-        pitch_quat = [
-            np.cos(half_theta),        # w
-            0,                         # x (axis x = 0)
-            np.sin(half_theta),        # y (axis y = 1)
-            0                          # z (axis z = 0)
-        ]
-
-        left_quat = [1, 0, 0, 0]
-        right_quat = pitch_quat
+        np.save("/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee/examples/plotting_values/right_cart.npy", right_cart)
 
         # Concatenate into a single vector: left arm first, then right arm
         full_state_vector = np.concatenate([
@@ -433,14 +423,9 @@ class TeleopWithServer:
         # Apply to MuJoCo ctrl
         self.ts = self.env.step(full_state_vector)
 
-        # rewrite the action took so that the dataset now has actions without the quaternions. 
-        full_state_vector = np.concatenate([
-            left_cart, [left_gripper],
-            right_cart, [right_gripper]
-        ])
-
         # Get the reward after the stepping function. 
         reward = 0.0 if self.ts.reward is None else self.ts.reward
+        print("reward : ", reward)
 
         set_observation_images(self.ts.observation, self.plt_imgs, self.cam_list)
                 

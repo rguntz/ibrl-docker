@@ -1,6 +1,9 @@
 dataset:
-  path: data/cube_picking_and_placing/dataset_actions16_shifted_5_normalized_minmax.hdf5
+  path: data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5
   rl_camera: "cam_high" #+cam_low+cam_left_wrist+cam_right_wrist"  
 policy:
   use_prop: 1
 use_wb: 0 
+denormalization_path : "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/delta_action_stats.json"
+initial_position_file : "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
+

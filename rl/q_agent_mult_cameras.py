@@ -51,6 +51,7 @@ class QAgentConfig:
 
 
 class QAgent(nn.Module):
+    print("init Q agent")
     def __init__(
         self, use_state, obs_shape, prop_shape, action_dim, rl_camera: str, cfg: QAgentConfig
     ):

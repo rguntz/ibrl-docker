@@ -1,0 +1,81 @@
+[2026-01-21 18:12:16,979][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:17:04,606][urllib3.connection][WARNING] - Certificate did not match expected hostname: o151352.ingest.sentry.io. Certificate: {'subject': ((('countryName', 'DE'),), (('stateOrProvinceName', 'Bavaria'),), (('localityName', 'Munich'),), (('organizationName', 'Bayerische Motoren Werke AG'),), (('commonName', 'guestwlan-portal.bmwgroup.net'),)), 'issuer': ((('countryName', 'BE'),), (('organizationName', 'GlobalSign nv-sa'),), (('commonName', 'GlobalSign RSA OV SSL CA 2018'),)), 'version': 3, 'serialNumber': '599A5CE92CB5A19CC0AC6786', 'notBefore': 'Dec  3 08:13:09 2025 GMT', 'notAfter': 'Jan  4 08:13:08 2027 GMT', 'subjectAltName': (('DNS', 'guestwlan-portal.bmwgroup.net'), ('DNS', 'guestwlan-portal.us.bmwgroup.net'), ('DNS', 'guestwlan-portal.cn.bmwgroup.net')), 'OCSP': ('http://ocsp.globalsign.com/gsrsaovsslca2018',), 'caIssuers': ('http://secure.globalsign.com/cacert/gsrsaovsslca2018.crt',), 'crlDistributionPoints': ('http://crl.globalsign.com/gsrsaovsslca2018.crl',)}
+[2026-01-22 09:17:04,607][urllib3.connectionpool][WARNING] - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'SSLError(CertificateError("hostname 'o151352.ingest.sentry.io' doesn't match either of 'guestwlan-portal.bmwgroup.net', 'guestwlan-portal.us.bmwgroup.net', 'guestwlan-portal.cn.bmwgroup.net'"))': /api/4504800232407040/envelope/
+[2026-01-22 09:41:08,570][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:41:15,330][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:41:15,338][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:41:15,467][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:41:15,895][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:41:16,895][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:44:28,438][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:44:34,360][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:44:34,364][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:44:34,419][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:44:34,772][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:44:34,772][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's UDP server at 192.168.1.5:50000
+[2026-01-22 09:44:34,773][wxai_v0@192.168.1.5][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:44:34,774][wxai_v0@192.168.1.5][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:44:34,784][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's TCP server at 192.168.1.3:50001
+[2026-01-22 09:44:34,784][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's UDP server at 192.168.1.3:50000
+[2026-01-22 09:44:34,786][wxai_v0@192.168.1.3][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:44:34,786][wxai_v0@192.168.1.3][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:45:18,253][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:45:24,185][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:45:24,190][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:45:24,247][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:45:24,602][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:45:24,602][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's UDP server at 192.168.1.5:50000
+[2026-01-22 09:45:24,603][wxai_v0@192.168.1.5][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:45:24,604][wxai_v0@192.168.1.5][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:45:24,614][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's TCP server at 192.168.1.3:50001
+[2026-01-22 09:45:24,615][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's UDP server at 192.168.1.3:50000
+[2026-01-22 09:45:24,616][wxai_v0@192.168.1.3][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:45:24,616][wxai_v0@192.168.1.3][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:50:05,373][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:50:11,381][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:50:11,385][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:50:11,441][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:50:11,819][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:50:11,820][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's UDP server at 192.168.1.5:50000
+[2026-01-22 09:50:11,823][wxai_v0@192.168.1.5][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:50:11,823][wxai_v0@192.168.1.5][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:50:11,833][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's TCP server at 192.168.1.3:50001
+[2026-01-22 09:50:11,834][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's UDP server at 192.168.1.3:50000
+[2026-01-22 09:50:11,835][wxai_v0@192.168.1.3][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:50:11,835][wxai_v0@192.168.1.3][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:53:21,363][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:53:27,492][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:53:27,497][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:53:27,552][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:53:27,912][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:53:27,913][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's UDP server at 192.168.1.5:50000
+[2026-01-22 09:53:27,915][wxai_v0@192.168.1.5][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:53:27,915][wxai_v0@192.168.1.5][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:53:27,925][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's TCP server at 192.168.1.3:50001
+[2026-01-22 09:53:27,926][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's UDP server at 192.168.1.3:50000
+[2026-01-22 09:53:27,927][wxai_v0@192.168.1.3][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:53:27,927][wxai_v0@192.168.1.3][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:56:42,386][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:56:48,616][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:56:48,621][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:56:48,679][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:56:49,041][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:56:49,043][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's UDP server at 192.168.1.5:50000
+[2026-01-22 09:56:49,045][wxai_v0@192.168.1.5][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:56:49,045][wxai_v0@192.168.1.5][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:56:49,056][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's TCP server at 192.168.1.3:50001
+[2026-01-22 09:56:49,056][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's UDP server at 192.168.1.3:50000
+[2026-01-22 09:56:49,057][wxai_v0@192.168.1.3][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:56:49,057][wxai_v0@192.168.1.3][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:59:04,483][diffusion_policy.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.523793e+08
+[2026-01-22 09:59:10,406][absl][INFO] - MUJOCO_GL=egl, attempting to import specified OpenGL backend.
+[2026-01-22 09:59:10,416][OpenGL.acceleratesupport][INFO] - No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[2026-01-22 09:59:10,480][absl][INFO] - MuJoCo library version is: 3.3.7
+[2026-01-22 09:59:10,851][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's TCP server at 192.168.1.5:50001
+[2026-01-22 09:59:10,851][wxai_v0@192.168.1.5][INFO] - Connecting to the arm controller's UDP server at 192.168.1.5:50000
+[2026-01-22 09:59:10,853][wxai_v0@192.168.1.5][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:59:10,853][wxai_v0@192.168.1.5][INFO] - Controller firmware version: 'v1.8.4'
+[2026-01-22 09:59:10,864][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's TCP server at 192.168.1.3:50001
+[2026-01-22 09:59:10,864][wxai_v0@192.168.1.3][INFO] - Connecting to the arm controller's UDP server at 192.168.1.3:50000
+[2026-01-22 09:59:10,866][wxai_v0@192.168.1.3][INFO] - Driver version: 'v1.8.8'
+[2026-01-22 09:59:10,867][wxai_v0@192.168.1.3][INFO] - Controller firmware version: 'v1.8.4'

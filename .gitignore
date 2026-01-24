@@ -5,12 +5,32 @@ common_utils/build/
 .vscode
 wandb
 data_outside_git/
-*.png
+debug_images
+debug_images
 *.pdf
 *.mp4
 *.gif
+*.hdf5
+*.ckpt
 .env
+*.png
 release/model
 *.zip
-debug_images/optim_analysis/*.pt
-debug_images/optim_analysis/*.pt
+
+# Ignore all .zip.lock files
+*.zip.lock
+
+# Ignore all .hdf5.zarr.zip files
+*.hdf5.zarr.zip
+
+*.zip
+*.zip
+*.hdf5.zarr.zip
+
+# Models, datasets, logs
+release/data/**
+*.pt
+*.pkl
+*.npz
+*.ckpt
+*.hdf5

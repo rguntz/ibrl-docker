@@ -22,7 +22,7 @@ class DatasetConfig:
     rl_camera: str = "robot0_eye_in_hand"
     num_data: int = -1
     max_len: int = -1
-    eval_episode_len: int = 1000
+    eval_episode_len: int = 746
     use_state: int = 0 # We dont use the state. 
     prop_stack: int = 1
     norm_action: int = 0
@@ -37,7 +37,7 @@ class DatasetConfig:
     def env_config(self) -> dict:
         if self.real_data:
             env_config = {
-                "env_name": "real",
+                "env_name": "TransferCubeEETask",
                 "env_kwargs": {"robots": ["panda"], "controller_configs": {"control_delta": True}},
             }
             return env_config
@@ -48,6 +48,7 @@ class DatasetConfig:
 
     @cached_property
     def task_name(self):
+        print("entered task name config : ", self.env_config["env_name"])
         return self.env_config["env_name"]
 
     @cached_property
@@ -136,9 +137,13 @@ class RobomimicDataset:
             episode_entries = []
             for i in range(episode_len):
                 entry = {"action": episode_data["action"][i]}
-                if self.cfg.ctrl_delta: # maybe we need to modify this for our task as we are now doing joint control. 
-                    assert entry["action"].min() >= -np.pi
-                    assert entry["action"].max() <= np.pi
+                if self.cfg.ctrl_delta: # maybe we need to modify this for our task as we are now doing joint control.
+                    #print("episode i : ", episode_id, i) 
+                    #print("min : ", entry["action"].min())
+                    #print("max : ", entry["action"].max())
+                    assert entry["action"].min() >= -1
+                    assert entry["action"].max() <= 1
+    
 
                 entry["prop"] = utils.concat_obs(i, episode_data["prop"], cfg.prop_stack) # It takes the current timestep i, the array (e.g. all prop values over time), 
                 # and a stack number (e.g. 3), and returns a stacked observation of several recent frames.
@@ -175,9 +180,29 @@ class RobomimicDataset:
             print(f"action dim {i}: [{action_mins[i].item():.2f}, {action_maxs[i].item():.2f}]")
 
         if cfg.real_data:
+
+            #########################
+            self.env_params: dict = dict(
+                env_name=self.cfg.task_name,
+                robots=self.cfg.robot,
+                episode_length=cfg.eval_episode_len,
+                reward_shaping=False,
+                image_size=224,
+                rl_image_size=self.obs_shape[-1] if not cfg.use_state else 96,
+                camera_names=cfg.rl_cameras,
+                rl_cameras=cfg.rl_cameras,
+                device="cuda",
+                use_state=cfg.use_state,
+                obs_stack=self.cfg.obs_stack,
+                state_stack=self.cfg.state_stack,
+                prop_stack=cfg.prop_stack,
+                ctrl_delta=bool(self.cfg.ctrl_delta),
+            )
+            #########################################
             self.env = None
             return
 
+        print("self.cfg.task_name : ", self.cfg.task_name)
         self.env_params: dict = dict(
             env_name=self.cfg.task_name,
             robots=self.cfg.robot,
@@ -194,8 +219,8 @@ class RobomimicDataset:
             prop_stack=cfg.prop_stack,
             ctrl_delta=bool(self.cfg.ctrl_delta),
         )
-        self.env = PixelTrossen(**self.env_params)
-        #self._check_controller_cfg() # removefor the moment to have a working version of the training pipeline. 
+        # self.env = PixelTrossen(**self.env_params)
+        #self._check_controller_cfg() # remove for the moment to have a working version of the training pipeline. 
 
     def _check_controller_cfg(self):
         assert self.env is not None

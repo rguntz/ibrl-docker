@@ -46,7 +46,7 @@ SIM_TASK_CONFIGS = {
 }
 
 ### Simulation envs fixed constants
-DT = 0.2
+DT = 0.05
 START_ARM_POSE = [
     0.0,
     0,

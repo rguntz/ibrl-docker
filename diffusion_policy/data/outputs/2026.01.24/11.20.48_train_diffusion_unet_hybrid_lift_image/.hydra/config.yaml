@@ -1,0 +1,202 @@
+name: train_diffusion_unet_hybrid
+_target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
+task_name: ${task.name}
+shape_meta: ${task.shape_meta}
+exp_name: default
+horizon: 16
+n_obs_steps: 2
+n_action_steps: 8
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+past_action_visible: false
+keypoint_visible_rate: 1.0
+obs_as_global_cond: true
+policy:
+  _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
+  shape_meta: ${shape_meta}
+  noise_scheduler:
+    _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
+    num_train_timesteps: 100
+    beta_start: 0.0001
+    beta_end: 0.02
+    beta_schedule: squaredcos_cap_v2
+    variance_type: fixed_small
+    clip_sample: true
+    prediction_type: epsilon
+  horizon: ${horizon}
+  n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
+  n_obs_steps: ${n_obs_steps}
+  num_inference_steps: 100
+  obs_as_global_cond: ${obs_as_global_cond}
+  crop_shape:
+  - 76
+  - 76
+  diffusion_step_embed_dim: 128
+  down_dims:
+  - 512
+  - 1024
+  - 2048
+  kernel_size: 5
+  n_groups: 8
+  cond_predict_scale: true
+  obs_encoder_group_norm: true
+  eval_fixed_crop: true
+ema:
+  _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+dataloader:
+  batch_size: 64
+  num_workers: 8
+  shuffle: true
+  pin_memory: true
+  persistent_workers: false
+val_dataloader:
+  batch_size: 64
+  num_workers: 8
+  shuffle: false
+  pin_memory: true
+  persistent_workers: false
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.0001
+  betas:
+  - 0.95
+  - 0.999
+  eps: 1.0e-08
+  weight_decay: 1.0e-06
+training:
+  device: cuda:0
+  seed: 42
+  debug: false
+  resume: true
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 3050
+  gradient_accumulate_every: 1
+  use_ema: true
+  rollout_every: 10
+  checkpoint_every: 10
+  val_every: 1
+  sample_every: 5
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+logging:
+  project: diffusion_policy_debug
+  resume: true
+  mode: online
+  name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+  tags:
+  - ${name}
+  - ${task_name}
+  - ${exp_name}
+  id: null
+  group: null
+checkpoint:
+  topk:
+    monitor_key: val_loss
+    mode: max
+    k: 5
+    format_str: epoch={epoch:04d}-val_loss={val_loss:.3f}.ckpt
+  save_last_ckpt: true
+  save_last_snapshot: false
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+task:
+  name: lift_image
+  shape_meta:
+    obs:
+      cam_high_image:
+        shape:
+        - 3
+        - 128
+        - 128
+        type: rgb
+      robot0_eef_pos:
+        shape:
+        - 6
+      robot0_eef_quat:
+        shape:
+        - 8
+      robot0_gripper_qpos:
+        shape:
+        - 2
+    action:
+      shape:
+      - 20
+  task_name: lift
+  dataset_type: ph
+  dataset_path: /home/qtf5422/Desktop/AIRE/ibrl-docker/diffusion_policy/diffusion_policy/data/trossen/sim/50_demos_small_distribution/dataset_norm_gripper_tresholded_wr_end_cut_angle_axis_image_transposed.hdf5
+  abs_action: true
+  env_runner:
+    _target_: diffusion_policy.env_runner.multi_process_trossen_image_runner_real.MultiprocessTrossenImageRunner
+    shape_meta:
+      obs:
+        cam_high_image:
+          shape:
+          - 3
+          - 128
+          - 128
+          type: rgb
+        robot0_eef_pos:
+          shape:
+          - 6
+        robot0_eef_quat:
+          shape:
+          - 8
+        robot0_gripper_qpos:
+          shape:
+          - 2
+      action:
+        shape:
+        - 20
+    n_test: 50
+    test_start_seed: 100000
+    max_steps: ${eval:'500 if "${task.dataset_type}" == "mh" else 200'}
+    n_obs_steps: ${n_obs_steps}
+    n_action_steps: ${n_action_steps}
+    render_obs_key: cam_high_image
+    fps: 10
+    crf: 22
+    past_action: ${past_action_visible}
+    abs_action: true
+    tqdm_interval_sec: 1.0
+    xml_path: trossen_ai_scene_task_2.xml
+  dataset:
+    _target_: diffusion_policy.dataset.robomimic_replay_image_dataset.RobomimicReplayImageDataset
+    shape_meta:
+      obs:
+        cam_high_image:
+          shape:
+          - 3
+          - 128
+          - 128
+          type: rgb
+        robot0_eef_pos:
+          shape:
+          - 6
+        robot0_eef_quat:
+          shape:
+          - 8
+        robot0_gripper_qpos:
+          shape:
+          - 2
+      action:
+        shape:
+        - 20
+    dataset_path: /home/qtf5422/Desktop/AIRE/ibrl-docker/diffusion_policy/diffusion_policy/data/trossen/sim/50_demos_small_distribution/dataset_norm_gripper_tresholded_wr_end_cut_angle_axis_image_transposed.hdf5
+    horizon: ${horizon}
+    pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+    pad_after: ${eval:'${n_action_steps}-1'}
+    n_obs_steps: ${dataset_obs_steps}
+    abs_action: true
+    rotation_rep: rotation_6d
+    use_legacy_normalizer: false
+    use_cache: true
+    seed: 42
+    val_ratio: 0.02

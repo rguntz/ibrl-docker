@@ -10,21 +10,31 @@ if mp.get_start_method(allow_none=True) != "spawn":
 
 import common_utils
 from common_utils import ibrl_utils as utils
-from env.trossen_wrapper import PixelTrossen
+from env.trossen_wrapper_real import PixelTrossen as PixelTrossen_real
+from env.trossen_wrapper import PixelTrossen as PixelTrossen_sim
 import os 
 
 
 class EvalProc:
-    def __init__(self, seeds, process_id, env_params, terminal_queue: mp.Queue):
+    def __init__(self, seeds, process_id, env_params, terminal_queue: mp.Queue, env_type, denormalization_path, initial_position_file, denormalization_path_bc):
         self.seeds = seeds
         self.process_id = process_id
         self.env_params: dict = env_params
         self.terminal_queue = terminal_queue
         self.send_queue = mp.Queue()
         self.recv_queue = mp.Queue()
+        self.env_type = env_type
+        self.denormalization_path = denormalization_path
+        self.initial_position_file = initial_position_file
+        self.denormalization_path_bc = denormalization_path_bc
 
     def start(self):
-        env = PixelTrossen(**self.env_params)
+        if self.env_type == "real" : 
+            env = PixelTrossen_real(**self.env_params, denormalization_path_bc = self.denormalization_path_bc, initial_position_file = self.initial_position_file)
+        elif self.env_type == "sim" : 
+            env = PixelTrossen_sim(**self.env_params, denormalization_path = self.denormalization_path, initial_position_file = self.initial_position_file)
+        else : 
+            print("env not recognized")
 
         results = {}
         for seed in self.seeds:
@@ -37,32 +47,6 @@ class EvalProc:
                 # is more complicated to move cuda tensors around.
                 self.send_queue.put((self.process_id, obs))
                 action = self.recv_queue.get()
-
-
-                """
-                ## -------------------------------------------
-                ## Save pred_action[:, 8:16] history
-
-                output_dir = "/home/qtf5422/Desktop/AIRE/ibrl-docker/debug_images/eval_analysis"
-                os.makedirs(output_dir, exist_ok=True)
-
-                range_output_path = os.path.join(output_dir, "pred_action_8_16.pt")
-
-                # Load existing if available
-                if os.path.exists(range_output_path):
-                    pred_8_16_history = torch.load(range_output_path)
-                else:
-                    pred_8_16_history = []
-
-                # Extract and append current pred_action[8:16]
-                pred_8_16_history.append(action[8:16].detach().cpu())
-
-                # Save back
-                torch.save(pred_8_16_history, range_output_path)
-                ## -------------------------------------------
-                ## -------------------------------------------
-                """
-
                 
                 obs, _, _, success, _ = env.step(action)
 
@@ -72,7 +56,9 @@ class EvalProc:
         return
 
 
-def run_eval(env_params, agent, num_game, num_proc, seed, verbose=True) -> list[float]:
+def run_eval(env_params, agent, num_game, num_proc, seed, verbose=True, env_type : str = "real", 
+                denormalization_path : str = "", initial_position_file : str = "", denormalization_path_bc : str = "") -> list[float]:
+
     assert num_game % num_proc == 0
     env_params["device"] = "cpu"  # avoid sending cuda across processes
 
@@ -82,7 +68,7 @@ def run_eval(env_params, agent, num_game, num_proc, seed, verbose=True) -> list[
     eval_procs = []
     for i in range(num_proc):
         seeds = list(range(seed + i * game_per_proc, seed + (i + 1) * game_per_proc))
-        eval_procs.append(EvalProc(seeds, i, env_params, terminal_queue))
+        eval_procs.append(EvalProc(seeds, i, env_params, terminal_queue, env_type, denormalization_path, initial_position_file, denormalization_path_bc))
 
     put_queues = {i: proc.recv_queue for i, proc in enumerate(eval_procs)}
     get_queues = {i: proc.send_queue for i, proc in enumerate(eval_procs)}
@@ -115,7 +101,7 @@ def run_eval(env_params, agent, num_game, num_proc, seed, verbose=True) -> list[
 
             if len(obses) == 0:
                 continue
-
+            
             batch_obs = {k: torch.stack(v).cuda() for k, v in obses.items()}
             batch_action = agent.act(batch_obs, eval_mode=True)
             for idx, action in zip(idxs, batch_action):

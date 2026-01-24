@@ -25,7 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-
+    
 import collections
 import os
 
@@ -48,8 +48,12 @@ def sample_box_pose() -> np.ndarray:
     :return: A 7D array containing the sampled position ``[x, y, z, w, x, y, z]`` representing the
         cube's position and orientation as a quaternion.
     """
-    x_range = [-0.1, 0.2]
-    y_range = [-0.15, 0.025]
+    # x_range = [-0.1, 0.2]
+    # y_range = [-0.15, 0.025]
+    # z_range = [0.0125, 0.0125]
+
+    x_range = [0, 0.1]
+    y_range = [0, -0.1]
     z_range = [0.0125, 0.0125]
 
     ranges = np.vstack([x_range, y_range, z_range])
@@ -82,14 +86,15 @@ def get_observation_base(
 
 def make_sim_env(
     task_class: base.Task,
-    xml_file: str = "trossen_ai_scene_joint.xml",
+    xml_file: str = "trossen_ai_scene.xml",
     task_name: str = "sim_transfer_cube",
     onscreen_render: bool = False,
     cam_list: list[str] = [],
-    max_steps: int = 1000,
+    max_steps: int = 1000000,
     
 
 ):
+
     """
     Create a simulated environment for bimanual robotic manipulation.
 

@@ -1,0 +1,37 @@
+task_name: "TransferCubeEETask"
+rl_camera: "cam_right_wrist"
+prop_stack: 1
+episode_length: 500
+stddev_max: 0.1
+bc_policy: "/home/qtf5422/Desktop/AIRE/DATA/IBRL/run_ee_bc_real_cube_1/checkpoint_step_18.pt"
+preload_num_data: 50
+preload_datapath: "sim_recorder_ee_real/server/data/cube/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
+num_warm_up_episode: 50
+num_train_step: 200000
+replay_buffer_size: 1000
+use_wb: 0
+mp_eval: 1 # we run mutlieval for testing. 
+num_eval_episode: 20
+# num_critic_update: 5 test with 5 yielded bad results
+use_state: 0
+q_agent:
+  act_method: "ibrl"
+  use_prop: 1
+
+  vit:
+    embed_style: "embedTross"
+    depth: 1
+  actor:
+    dropout: 0.5
+    hidden_dim: 1024
+    feature_dim: 128
+  critic:
+    spatial_emb: 1024
+    hidden_dim: 1024
+
+denormalization_path_bc : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/delta_action_stats_scaled.json"
+initial_position_file : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
+denormalization_path_rl : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/delta_action_stats_rl.json"
+
+load_pretrained_agent : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/run_ee_rl_real_cube_1/latest.pt"  
+load_policy_only: 0 

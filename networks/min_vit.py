@@ -22,23 +22,6 @@ class PatchEmbed1(nn.Module):
         return y
 
 
-class PatchEmbedTrossen(nn.Module):
-    def __init__(self, embed_dim, use_norm=False):
-        super().__init__()
-        # Example: kernel and stride chosen to produce reasonable number of patches
-        # For 96x128 input, let's do a 8x8 kernel with stride 8 for height and 8 for width
-        self.conv = nn.Conv2d(3, embed_dim, kernel_size=(8, 8), stride=(8, 8))
-        
-        # Compute number of patches dynamically for 96x128
-        self.num_patch = (96 // 8) * (128 // 8)  # 12 * 16 = 192
-        self.patch_dim = embed_dim
-
-    def forward(self, x: torch.Tensor):
-        y = self.conv(x)
-        y = einops.rearrange(y, "b c h w -> b (h w) c")
-        return y
-
-
 class PatchEmbed2(nn.Module):
     def __init__(self, embed_dim, use_norm):
         super().__init__()
@@ -51,6 +34,26 @@ class PatchEmbed2(nn.Module):
         self.embed = nn.Sequential(*layers)
 
         self.num_patch = 121
+        self.patch_dim = embed_dim
+
+    def forward(self, x: torch.Tensor):
+        y = self.embed(x)
+        y = einops.rearrange(y, "b c h w -> b (h  w) c")
+        return y
+
+
+class PatchEmbedTrossen(nn.Module):
+    def __init__(self, embed_dim, use_norm):
+        super().__init__()
+        layers = [
+            nn.Conv2d(3, embed_dim, kernel_size=8, stride=4),
+            nn.GroupNorm(embed_dim, embed_dim) if use_norm else nn.Identity(),
+            nn.ReLU(),
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, stride=2),
+        ]
+        self.embed = nn.Sequential(*layers)
+
+        self.num_patch = 225
         self.patch_dim = embed_dim
 
     def forward(self, x: torch.Tensor):
@@ -76,11 +79,10 @@ class MultiHeadAttention(nn.Module):
         """
         qkv = self.qkv_proj(x)
         q, k, v = einops.rearrange(qkv, "b t (k h d) -> b k h t d", k=3, h=self.num_head).unbind(1)
-        # force flash/mem-eff attention, it will raise error if flash cannot be applied
-        with torch.backends.cuda.sdp_kernel(enable_math=False):
-            attn_v = torch.nn.functional.scaled_dot_product_attention(
-                q, k, v, dropout_p=0.0, attn_mask=attn_mask
-            )
+        # Use scaled_dot_product_attention with automatic backend selection
+        attn_v = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, dropout_p=0.0, attn_mask=attn_mask
+        )
         attn_v = einops.rearrange(attn_v, "b h t d -> b t (h d)")
         return self.out_proj(attn_v)
 
@@ -168,7 +170,7 @@ def test_patch_embed():
 
     print("embed 2")
     embed = PatchEmbed2(128, True)
-    x = torch.rand(10, 3, 96, 96)
+    x = torch.rand(10, 3, 128, 128)
     y = embed(x)
     print(y.size())
 
@@ -185,5 +187,5 @@ def test_transformer_layer():
 
 
 if __name__ == "__main__":
-    # test_patch_embed()
-    test_transformer_layer()
+    test_patch_embed()
+    #test_transformer_layer()

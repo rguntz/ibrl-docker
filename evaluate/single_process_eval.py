@@ -26,6 +26,8 @@ def run_eval(env_params, agent, num_game, seed, verbose=True) -> list[float]:
     
     results = {}
     t = time.time()
+
+    print("run eval activated")
     
     with torch.no_grad(), utils.eval_mode(agent):
         for i in range(num_game):
