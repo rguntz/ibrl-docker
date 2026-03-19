@@ -5,7 +5,7 @@ episode_length: 200
 stddev_max: 0.1
 bc_policy: "/home/qtf5422/Desktop/AIRE/DATA/IBRL/models/sim/BC/EXPERIMENT_BC_EE_DELTA/model0.pt"
 preload_num_data: 50
-preload_datapath: "/home/qtf5422/Desktop/AIRE/DATA/IBRL/datasets/SIM/EE_CONTROL_SIM_DELTA_DATASET/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
+preload_datapath: "/home/qtf5422/Desktop/AIRE/DATA/IBRL/datasets/MLP/SIM/EE_CONTROL_SIM_DELTA_DATASET/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
 num_warm_up_episode: 50
 num_train_step: 200000
 replay_buffer_size: 1000
@@ -29,7 +29,5 @@ q_agent:
     hidden_dim: 1024
 
 # newly added for the trossen wrapper : 
-denormalization_path : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/datasets/SIM/EE_CONTROL_SIM_DELTA_DATASET/delta/delta/delta_action_stats.json"
-initial_position_file : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/datasets/SIM/EE_CONTROL_SIM_DELTA_DATASET/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
-discrim_train_interval : 2
-preload_pos_data : "/home/qtf5422/Desktop/AIRE/ibrl-docker/self-improving-robots/vision_demos/trossen/forward.npz"
+denormalization_path : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/datasets/MLP/SIM/EE_CONTROL_SIM_DELTA_DATASET/delta/delta_action_stats.json"
+initial_position_file : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/datasets/MLP/SIM/EE_CONTROL_SIM_DELTA_DATASET/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"

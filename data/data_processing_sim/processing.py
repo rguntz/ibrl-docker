@@ -116,7 +116,7 @@ def process_dataset(input_file, output_file, threshold):
 
 
 
-def modify_rewards_and_create_dones(input_path, output_path, max_reward = 3):
+def modify_rewards_and_create_dones(input_path, output_path):
     """
     Modify rewards and create dones key:
     - Rewards: Convert from range [0, 1, 2, 3, 4] to binary [0, 1]
@@ -156,7 +156,7 @@ def modify_rewards_and_create_dones(input_path, output_path, max_reward = 3):
             # --- Rewards (modified) ---
             rewards_original = demo_in["rewards"][:]
             # Convert to binary: 1 if reward == 4, else 0
-            rewards_binary = (rewards_original == max_reward).astype(np.float32)
+            rewards_binary = (rewards_original == 1).astype(np.float32)
             demo_out.create_dataset("rewards", data=rewards_binary, compression="gzip")
 
             # --- Dones (new key, same as modified rewards) ---
@@ -651,44 +651,29 @@ def normalize_gripper_in_file(input_path, output_path):
     print(f"Input:  {input_path}")
     print(f"Output: {output_path}")
 
+
 def normalize_delta_actions_in_file(input_path, output_path, delta_min_max_stats):
     """
-    Normalize delta position and rotation components to [-1, 1] range using separate stats for left/right arms.
+    Normalize delta position and rotation components to [-1, 1] range.
     Gripper values remain unchanged.
     
     Uses the normalization formula: a_norm = 2 * (a_raw - min) / (max - min) - 1
     
-    14D action structure:
-        [pos_delta_L_3d, rot_delta_L_3d, grip_L_1d, pos_delta_R_3d, rot_delta_R_3d, grip_R_1d]
-    Indices:
-        Left:  0-5 (gripper at 6)
-        Right: 7-12 (gripper at 13)
+    14D action structure: [pos_delta_L_3d, rot_delta_L_3d, grip_L_1d, pos_delta_R_3d, rot_delta_R_3d, grip_R_1d]
+    Normalized indices: 0-5, 7-12 (skip gripper at 6, 13)
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Helper to safely extract min/max for a given key
-    def get_min_max(key):
-        return delta_min_max_stats[key]["min"], delta_min_max_stats[key]["max"]
-
-    # --- Load LEFT arm stats ---
-    pos_x_l_min, pos_x_l_max = get_min_max("Pos X Delta left")
-    pos_y_l_min, pos_y_l_max = get_min_max("Pos Y Delta left")
-    pos_z_l_min, pos_z_l_max = get_min_max("Pos Z Delta left")
+    # Load min/max values from stats dict
+    pos_x_min, pos_x_max = delta_min_max_stats["Pos X Delta"]["min"], delta_min_max_stats["Pos X Delta"]["max"]
+    pos_y_min, pos_y_max = delta_min_max_stats["Pos Y Delta"]["min"], delta_min_max_stats["Pos Y Delta"]["max"]
+    pos_z_min, pos_z_max = delta_min_max_stats["Pos Z Delta"]["min"], delta_min_max_stats["Pos Z Delta"]["max"]
     
-    rot_x_l_min, rot_x_l_max = get_min_max("Rot X Delta left")
-    rot_y_l_min, rot_y_l_max = get_min_max("Rot Y Delta left")
-    rot_z_l_min, rot_z_l_max = get_min_max("Rot Z Delta left")
-
-    # --- Load RIGHT arm stats ---
-    pos_x_r_min, pos_x_r_max = get_min_max("Pos X Delta right")
-    pos_y_r_min, pos_y_r_max = get_min_max("Pos Y Delta right")
-    pos_z_r_min, pos_z_r_max = get_min_max("Pos Z Delta right")
-    
-    rot_x_r_min, rot_x_r_max = get_min_max("Rot X Delta right")
-    rot_y_r_min, rot_y_r_max = get_min_max("Rot Y Delta right")
-    rot_z_r_min, rot_z_r_max = get_min_max("Rot Z Delta right")
+    rot_x_min, rot_x_max = delta_min_max_stats["Rot X Delta"]["min"], delta_min_max_stats["Rot X Delta"]["max"]
+    rot_y_min, rot_y_max = delta_min_max_stats["Rot Y Delta"]["min"], delta_min_max_stats["Rot Y Delta"]["max"]
+    rot_z_min, rot_z_max = delta_min_max_stats["Rot Z Delta"]["min"], delta_min_max_stats["Rot Z Delta"]["max"]
 
     with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
         # Copy root-level attributes
@@ -715,29 +700,33 @@ def normalize_delta_actions_in_file(input_path, output_path, delta_min_max_stats
                 else:
                     demo_in.copy(key, demo_out)
 
-            # Process actions: normalize position and rotation deltas per arm
+            # Process actions: normalize position and rotation deltas
             actions = demo_in["actions"][:]  # (T, 14)
             actions_norm = actions.copy()
 
-            # === LEFT ARM (indices 0-5) ===
-            actions_norm[:, 0] = 2.0 * (actions[:, 0] - pos_x_l_min) / (pos_x_l_max - pos_x_l_min) - 1.0
-            actions_norm[:, 1] = 2.0 * (actions[:, 1] - pos_y_l_min) / (pos_y_l_max - pos_y_l_min) - 1.0
-            actions_norm[:, 2] = 2.0 * (actions[:, 2] - pos_z_l_min) / (pos_z_l_max - pos_z_l_min) - 1.0
+            # === LEFT ARM ===
+            # Position deltas (indices 0, 1, 2)
+            actions_norm[:, 0] = 2.0 * (actions[:, 0] - pos_x_min) / (pos_x_max - pos_x_min) - 1.0
+            actions_norm[:, 1] = 2.0 * (actions[:, 1] - pos_y_min) / (pos_y_max - pos_y_min) - 1.0
+            actions_norm[:, 2] = 2.0 * (actions[:, 2] - pos_z_min) / (pos_z_max - pos_z_min) - 1.0
             
-            actions_norm[:, 3] = 2.0 * (actions[:, 3] - rot_x_l_min) / (rot_x_l_max - rot_x_l_min) - 1.0
-            actions_norm[:, 4] = 2.0 * (actions[:, 4] - rot_y_l_min) / (rot_y_l_max - rot_y_l_min) - 1.0
-            actions_norm[:, 5] = 2.0 * (actions[:, 5] - rot_z_l_min) / (rot_z_l_max - rot_z_l_min) - 1.0
-            # Gripper (index 6) — unchanged
+            # Rotation deltas (indices 3, 4, 5)
+            actions_norm[:, 3] = 2.0 * (actions[:, 3] - rot_x_min) / (rot_x_max - rot_x_min) - 1.0
+            actions_norm[:, 4] = 2.0 * (actions[:, 4] - rot_y_min) / (rot_y_max - rot_y_min) - 1.0
+            actions_norm[:, 5] = 2.0 * (actions[:, 5] - rot_z_min) / (rot_z_max - rot_z_min) - 1.0
+            # Gripper (index 6) - unchanged
 
-            # === RIGHT ARM (indices 7-12) ===
-            actions_norm[:, 7] = 2.0 * (actions[:, 7] - pos_x_r_min) / (pos_x_r_max - pos_x_r_min) - 1.0
-            actions_norm[:, 8] = 2.0 * (actions[:, 8] - pos_y_r_min) / (pos_y_r_max - pos_y_r_min) - 1.0
-            actions_norm[:, 9] = 2.0 * (actions[:, 9] - pos_z_r_min) / (pos_z_r_max - pos_z_r_min) - 1.0
+            # === RIGHT ARM ===
+            # Position deltas (indices 7, 8, 9)
+            actions_norm[:, 7] = 2.0 * (actions[:, 7] - pos_x_min) / (pos_x_max - pos_x_min) - 1.0
+            actions_norm[:, 8] = 2.0 * (actions[:, 8] - pos_y_min) / (pos_y_max - pos_y_min) - 1.0
+            actions_norm[:, 9] = 2.0 * (actions[:, 9] - pos_z_min) / (pos_z_max - pos_z_min) - 1.0
             
-            actions_norm[:, 10] = 2.0 * (actions[:, 10] - rot_x_r_min) / (rot_x_r_max - rot_x_r_min) - 1.0
-            actions_norm[:, 11] = 2.0 * (actions[:, 11] - rot_y_r_min) / (rot_y_r_max - rot_y_r_min) - 1.0
-            actions_norm[:, 12] = 2.0 * (actions[:, 12] - rot_z_r_min) / (rot_z_r_max - rot_z_r_min) - 1.0
-            # Gripper (index 13) — unchanged
+            # Rotation deltas (indices 10, 11, 12)
+            actions_norm[:, 10] = 2.0 * (actions[:, 10] - rot_x_min) / (rot_x_max - rot_x_min) - 1.0
+            actions_norm[:, 11] = 2.0 * (actions[:, 11] - rot_y_min) / (rot_y_max - rot_y_min) - 1.0
+            actions_norm[:, 12] = 2.0 * (actions[:, 12] - rot_z_min) / (rot_z_max - rot_z_min) - 1.0
+            # Gripper (index 13) - unchanged
 
             # Save normalized actions
             demo_out.create_dataset("actions", data=actions_norm, compression="gzip")
@@ -767,21 +756,20 @@ def normalize_delta_actions_from_json(input_path, output_path, json_stats_path):
     normalize_delta_actions_in_file(input_path, output_path, delta_min_max_stats)
 
 
-def truncate_demos_at_k_rewards(input_path, output_path, k, target_reward):
+
+def truncate_demos_at_k_dones(input_path, output_path, k):
     """
-    Truncate each demonstration at the time step where the k-th occurrence of 
-    `reward == target_reward` happens.
+    Truncate each demonstration at the time step where the k-th 'done' (value == 1) occurs.
     
     For each demo:
-      - Find indices where rewards == target_reward.
+      - Find indices where dones == 1.
       - If there are >= k such indices, keep data up to and including the k-th one.
       - If < k, keep the full trajectory (no truncation).
     
     Args:
         input_path (str/Path): Input HDF5 file.
         output_path (str/Path): Output HDF5 file.
-        k (int): Number of occurrences of `target_reward` to wait for before truncating.
-        target_reward (float or int): The reward value to look for.
+        k (int): Number of 'done=1' signals to wait for before truncating.
     """
     if k <= 0:
         raise ValueError("k must be a positive integer.")
@@ -803,27 +791,23 @@ def truncate_demos_at_k_rewards(input_path, output_path, k, target_reward):
 
         for demo_name in data_in.keys():
             demo_in = data_in[demo_name]
-            print(f"Truncating {demo_name} at k={k} occurrences of reward={target_reward}...")
+            print(f"Truncating {demo_name} at k={k} done(s)...")
 
-            # Must have 'rewards'
-            if "rewards" not in demo_in:
-                raise KeyError(f"'rewards' key missing in {demo_name}")
+            # Must have 'dones'
+            if "dones" not in demo_in:
+                raise KeyError(f"'dones' key missing in {demo_name}")
 
-            rewards = demo_in["rewards"][:]
-            T = len(rewards)
+            dones = demo_in["dones"][:]
+            T = len(dones)
 
-            # Find indices where reward equals target_reward
-            # Use np.isclose for float safety if needed; otherwise direct equality
-            if np.issubdtype(rewards.dtype, np.floating):
-                reward_indices = np.where(np.isclose(rewards, target_reward))[0]
+            # Find indices where done == 1
+            done_indices = np.where(dones == 1)[0]
+
+            if len(done_indices) >= k:
+                # Keep up to and including the k-th done (0-based: index = done_indices[k-1])
+                end_index = done_indices[k - 1] + 1  # +1 because slicing is exclusive
             else:
-                reward_indices = np.where(rewards == target_reward)[0]
-
-            if len(reward_indices) >= k:
-                # Keep up to and including the k-th occurrence
-                end_index = reward_indices[k - 1] + 1  # +1 because slicing is exclusive
-            else:
-                # Not enough matching rewards; keep full trajectory
+                # Not enough done flags; keep full trajectory
                 end_index = T
 
             # Create output demo group
@@ -849,7 +833,7 @@ def truncate_demos_at_k_rewards(input_path, output_path, k, target_reward):
                             truncated_subdata = subitem[:end_index]
                             new_group.create_dataset(subkey, data=truncated_subdata, compression="gzip")
                         else:
-                            # Nested groups — unlikely, but safe to skip or warn
+                            # Nested groups — unlikely in your structure, but safe to skip or warn
                             print(f"⚠️ Warning: Nested group {key}/{subkey} not truncated (unsupported).")
                             item.copy(subkey, new_group)
 
@@ -864,17 +848,17 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
     Plot and analyze right arm delta actions (14D format).
     
     14D action structure: [pos_delta_L_3d, rot_delta_L_3d, grip_delta_L_1d, pos_delta_R_3d, rot_delta_R_3d, grip_delta_R_1d]
-    Left arm: indices 0-6, Right arm: indices 7-13
-
+    Right arm is indices 7-13 (last 7 dimensions)
+    
     Plots:
-    - Current position vs position delta (right arm only)
-    - Current gripper vs gripper delta (right arm only)
+    - Current position vs position delta
+    - Current gripper vs gripper delta
     """
     with h5py.File(file, "r") as f:
         f_data = f["data"]
         demo_keys = sorted(f_data.keys())
 
-        # --- Plot only the first demo (right arm only) ---
+        # --- Plot only the first demo ---
         first_demo_key = demo_keys[0]
         f_demo_0 = f_data[first_demo_key]
 
@@ -887,14 +871,21 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
 
         # Extract right arm delta actions (indices 7-13)
         right_arm_delta = actions_delta[:, 7:14]  # (T, 7)
+        # Structure: [pos_delta_3d, rot_delta_3d, grip_delta_1d]
 
         T = right_arm_delta.shape[0]
+        
+        for i in range(T) : 
+            print("right_arm_delta : ", right_arm_delta[i, :])
+
         steps = range(T)
 
-        # --- Plot: Position and Gripper (Right Arm Only) ---
+        # --- Plot: Position and Gripper ---
         dim_names = ["Pos X", "Pos Y", "Pos Z", "Grip"]
+        
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
 
+        # Position plots (indices 0-2)
         for i in range(3):
             axes[i].plot(steps, robot0_eef_pos[:, i], label=f'{dim_names[i]} (current)', color='blue', linewidth=1.5)
             axes[i].plot(steps, right_arm_delta[:, i], label=f'{dim_names[i]} (delta)', color='red', linestyle='--', linewidth=1.5)
@@ -903,6 +894,7 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
             axes[i].legend(loc='upper right')
             axes[i].grid(True, alpha=0.3)
 
+        # Gripper plot
         axes[3].plot(steps, robot0_gripper_qpos[:, 0], label='Grip (current)', color='blue', linewidth=1.5)
         axes[3].plot(steps, right_arm_delta[:, 6], label='Grip (delta)', color='red', linestyle='--', linewidth=1.5)
         axes[3].axhline(0, color='black', linewidth=0.5, linestyle=':')
@@ -915,23 +907,24 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
         plt.tight_layout(rect=[0, 0, 1, 0.97])
         plt.show()
 
-        # --- Compute global min/max across ALL demos for BOTH arms ---
-        print("\nComputing global min and max of delta actions across all demos (both arms)...")
-        global_min = np.full(14, np.inf)
-        global_max = np.full(14, -np.inf)
+        # --- Compute global min/max across ALL demos ---
+        print("\nComputing global min and max of delta actions across all demos...")
+        global_min = np.full(7, np.inf)
+        global_max = np.full(7, -np.inf)
 
         for demo_key in demo_keys:
             demo = f_data[demo_key]
             actions_delta = demo["actions"][:]  # (T, 14)
 
-            # Update global min/max per dimension over full 14D action
-            global_min = np.minimum(global_min, np.min(actions_delta, axis=0))
-            global_max = np.maximum(global_max, np.max(actions_delta, axis=0))
+            # Extract right arm delta actions
+            right_arm_delta = actions_delta[:, 7:14]  # (T, 7)
 
-        # Construct names in the requested order
-        base_names = ["Pos X Delta", "Pos Y Delta", "Pos Z Delta", "Rot X Delta", "Rot Y Delta", "Rot Z Delta", "Grip"]
-        delta_dim_names = [f"{name} left" for name in base_names] + [f"{name} right" for name in base_names]
+            # Update global min/max per dimension
+            global_min = np.minimum(global_min, np.min(right_arm_delta, axis=0))
+            global_max = np.maximum(global_max, np.max(right_arm_delta, axis=0))
 
+        # Prepare dictionary for JSON
+        delta_dim_names = ["Pos X Delta", "Pos Y Delta", "Pos Z Delta", "Rot X Delta", "Rot Y Delta", "Rot Z Delta", "Grip"]
         stats = {}
         for i, name in enumerate(delta_dim_names):
             stats[name] = {
@@ -946,234 +939,26 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
         print(f"\nGlobal min/max saved to: {os.path.abspath(output_json)}")
 
         # Also print to console
-        print("\nGlobal Min and Max of Delta Actions (Both Arms) across ALL demos:")
+        print("\nGlobal Min and Max of Delta Actions (Right Arm) across ALL demos:")
         print("-" * 70)
         for name in delta_dim_names:
-            print(f"{name:25}: min = {stats[name]['min']: .6f}, max = {stats[name]['max']: .6f}")
+            print(f"{name:15}: min = {stats[name]['min']: .6f}, max = {stats[name]['max']: .6f}")
 
-        # --- Plot Rewards (from first demo) ---
-        if "rewards" in f_demo_0:
-            rewards = f_demo_0["rewards"][:]
-            print(f"\nRewards shape: {rewards.shape}")
-            print(f"First reward: {rewards[0]}")
-            print(f"Last reward: {rewards[-1]}")
-            print(f"Min reward: {np.min(rewards):.6f}, Max reward: {np.max(rewards):.6f}")
-            print(f"Unique reward values: {np.unique(rewards)}")
-            
-            fig_rewards, ax_rewards = plt.subplots(1, 1, figsize=(12, 4))
-            ax_rewards.plot(steps, rewards, label='Reward', color='green', linewidth=1.5, marker='o', markersize=3)
-            ax_rewards.set_xlabel("Step")
-            ax_rewards.set_ylabel("Reward Value")
-            ax_rewards.legend()
-            ax_rewards.grid(True)
-            plt.suptitle("Rewards Over Time")
-            plt.tight_layout()
-            plt.show()
 
-        # --- Plot Dones (from first demo) ---
-        if "dones" in f_demo_0:
-            dones = f_demo_0["dones"][:]
-            print(f"\nDones shape: {dones.shape}")
-            print(f"First done: {dones[0]}")
-            print(f"Last done: {dones[-1]}")
-            print(f"Min done: {np.min(dones):.6f}, Max done: {np.max(dones):.6f}")
-            print(f"Unique done values: {np.unique(dones)}")
-            print(f"Number of done flags: {np.sum(dones)}")
-            
-            fig_dones, ax_dones = plt.subplots(1, 1, figsize=(12, 4))
-            ax_dones.plot(steps, dones, label='Done', color='orange', linewidth=1.5, marker='s', markersize=3)
-            ax_dones.set_xlabel("Step")
-            ax_dones.set_ylabel("Done Flag")
-            ax_dones.set_ylim([-0.1, 1.1])
-            ax_dones.legend()
-            ax_dones.grid(True)
-            plt.suptitle("Done Flags Over Time")
-            plt.tight_layout()
-            plt.show()
-
-def check_length_max_episode(file):
-    with h5py.File(file, "r") as f:
-        f_data = f["data"]
-        demo_keys = sorted(f_data.keys())
-        max_length = 0
-        longest_demo = None
-
-        for demo_key in demo_keys:
-            demo = f_data[demo_key]
-            # Use actions or obs to get trajectory length; assuming actions exist
-            T = demo["actions"].shape[0]  # number of timesteps
-            if T > max_length:
-                max_length = T
-                longest_demo = demo_key
-
-        print(f"The maximum episode length is {max_length} (from demo: {longest_demo})")
-
-def rename_env_in_hdf5(input_path, output_path, new_env_name="TransferCubeEETask_dexterous"):
-    """
-    Modify the 'env_args' attribute in an HDF5 dataset to replace the env_name
-    with a new one (e.g., 'TransferCubeEETask' → 'TransferCubeEETask_dexterous'),
-    while keeping all other data and attributes unchanged.
-
-    Args:
-        input_path (str or Path): Path to the input HDF5 file.
-        output_path (str or Path): Path to save the modified HDF5 file.
-        new_env_name (str): The new environment name to insert into env_args.
-    """
-    input_path = Path(input_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
-        # Copy root-level attributes (if any)
-        for key, val in fin.attrs.items():
-            fout.attrs[key] = val
-
-        # Copy everything under 'data', but modify 'env_args' in its attributes
-        if "data" not in fin:
-            raise KeyError("Input file must contain a 'data' group.")
-
-        f_data_in = fin["data"]
-        f_data_out = fout.create_group("data")
-
-        # Modify env_args
-        if "env_args" not in f_data_in.attrs:
-            raise KeyError("Attribute 'env_args' not found in /data.")
-
-        env_args_str = f_data_in.attrs["env_args"]
-        try:
-            env_args = json.loads(env_args_str)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse 'env_args' as JSON: {e}")
-
-        if "env_name" not in env_args:
-            raise KeyError("'env_name' not found in env_args JSON.")
-
-        print(f"Original env_name: {env_args['env_name']}")
-        env_args["env_name"] = new_env_name
-        updated_env_args_str = json.dumps(env_args)
-
-        # Set updated env_args
-        f_data_out.attrs["env_args"] = updated_env_args_str
-
-        # Copy all other attributes from /data
-        for key, val in f_data_in.attrs.items():
-            if key != "env_args":
-                f_data_out.attrs[key] = val
-
-        # Recursively copy all datasets and groups under /data without modification
-        def copy_group_recursive(source_group, target_group):
-            for key, item in source_group.items():
-                if isinstance(item, h5py.Dataset):
-                    target_group.copy(item, key)
-                elif isinstance(item, h5py.Group):
-                    new_group = target_group.create_group(key)
-                    # Copy group attributes
-                    for attr_key, attr_val in item.attrs.items():
-                        new_group.attrs[attr_key] = attr_val
-                    copy_group_recursive(item, new_group)
-                else:
-                    print(f"⚠️ Skipping unsupported item type for key: {key}")
-
-        copy_group_recursive(f_data_in, f_data_out)
-
-    print(f"✅ Successfully updated env_name to '{new_env_name}' and saved to: {output_path}")
-
-def check_last_step_reward_is_3(file_path):
-    """
-    Check if the last step of every demonstration in the dataset has reward == 3.
-    Prints a summary and raises an AssertionError if any demo violates this condition.
-    
-    Args:
-        file_path (str or Path): Path to the HDF5 dataset file.
-    """
-    with h5py.File(file_path, "r") as f:
-        data_group = f["data"]
-        demo_keys = sorted(data_group.keys())
-        all_good = True
-        bad_demos = []
-
-        for demo_key in demo_keys:
-            demo = data_group[demo_key]
-            if "rewards" not in demo:
-                print(f"⚠️ Warning: 'rewards' missing in {demo_key}. Skipping.")
-                continue
-
-            rewards = demo["rewards"][:]
-            if len(rewards) == 0:
-                print(f"⚠️ Warning: empty rewards in {demo_key}.")
-                continue
-
-            last_reward = rewards[-1]
-            if not np.isclose(last_reward, 3.0):
-                all_good = False
-                bad_demos.append((demo_key, last_reward))
-
-        if all_good:
-            print("✅ All episodes end with reward == 3.")
-        else:
-            print("❌ Some episodes do NOT end with reward == 3:")
-            for demo_key, r in bad_demos:
-                print(f"  - {demo_key}: last reward = {r}")
-            raise AssertionError("Not all episodes terminate with reward == 3.")
-
-def rename_demos_sequentially(input_path, output_path):
-    """
-    Renames all demonstration groups in an HDF5 dataset to be sequential:
-    demo_0, demo_1, demo_2, ..., demo_{N-1}, where N = total number of demos.
-    
-    This fixes issues caused by missing demo indices (e.g., deleted demo_20).
-    
-    Args:
-        input_path (str or Path): Path to input HDF5 file.
-        output_path (str or Path): Path to save the renamed HDF5 file.
-    """
-    input_path = Path(input_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
-        # Copy root-level attributes
-        for k, v in fin.attrs.items():
-            fout.attrs[k] = v
-
-        # Create 'data' group and copy its attributes (e.g., env_args)
-        data_in = fin["data"]
-        data_out = fout.create_group("data")
-        for k, v in data_in.attrs.items():
-            data_out.attrs[k] = v
-
-        # Get all demo keys and sort them (for deterministic ordering)
-        demo_keys = sorted(data_in.keys())
-        print(f"Found {len(demo_keys)} demos. Renaming to demo_0 ... demo_{len(demo_keys)-1}.")
-
-        # Copy each demo under a new sequential name
-        for i, old_key in enumerate(demo_keys):
-            new_key = f"demo_{i}"
-            print(f"Renaming '{old_key}' → '{new_key}'")
-            data_in.copy(old_key, data_out, name=new_key)
-
-    print(f"✅ Renaming complete! Saved to: {output_path}")
-
-# # ######################################################################################################################################################################################
+######################################################################################################################################################################################
 file_original = "dataset.hdf5"
-check_last_step_reward_is_3(file_original)
 inspect_right_arm(file_original)
-# process_dataset(input_file=file_original, output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded.hdf5", threshold=0.01)
-# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded.hdf5")
-# modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr.hdf5")
-# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr.hdf5")
-# shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted.hdf5", k=3)
-# inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted.hdf5")
-# convert_actions_to_delta(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta.hdf5")
-# plot_right_arm_delta_actions(file= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta.hdf5")
-# normalize_gripper_in_file(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5")
-# plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5")
-# truncate_demos_at_k_rewards(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", k=1, target_reward = 1)
-# plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_json="delta_action_stats.json")
-# normalize_delta_actions_from_json(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5", json_stats_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/delta_action_stats.json")
-# plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
-# check_length_max_episode(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
-# rename_env_in_hdf5(input_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5", output_path = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed.hdf5")
-# plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed.hdf5")
-rename_demos_sequentially(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed_demo_renamed.hdf5")
-plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed_demo_renamed.hdf5")
+process_dataset(input_file=file_original, output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded.hdf5", threshold=0.01)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded.hdf5")
+modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr.hdf5")
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr.hdf5")
+shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted.hdf5", k=3)
+inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted.hdf5")
+convert_actions_to_delta(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta.hdf5")
+plot_right_arm_delta_actions(file= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta.hdf5")
+normalize_gripper_in_file(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5")
+plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5")
+truncate_demos_at_k_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", k=1)
+plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_json="delta_action_stats.json")
+normalize_delta_actions_from_json(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5", json_stats_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/delta_action_stats.json")
+plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")

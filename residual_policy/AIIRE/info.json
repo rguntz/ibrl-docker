@@ -115,6 +115,15 @@
         "state"
       ]
     },
+    "next.done": {
+      "dtype": "float64",
+      "shape": [
+        1
+      ],
+      "names": [
+        "state"
+      ]
+    },
     "observation.state": {
       "dtype": "float64",
       "shape": [

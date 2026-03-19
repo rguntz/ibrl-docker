@@ -6,8 +6,6 @@ dataset:
 policy:
   use_prop: 1
 use_wb: 0 
-load_model : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/run_ee_bc_real_cube_1/checkpoint_step_18.pt"
+# load_model : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/run_ee_bc_real_cube_1/checkpoint_step_18.pt"
 denormalization_path_bc : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/delta_action_stats_scaled.json"
 initial_position_file : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
-
-

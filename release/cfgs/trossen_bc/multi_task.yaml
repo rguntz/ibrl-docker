@@ -1,9 +1,0 @@
-dataset:
-  path: data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed.hdf5
-  rl_camera: "cam_high" #+cam_low+cam_left_wrist+cam_right_wrist"  
-policy:
-  use_prop: 1
-use_wb: 0 
-denormalization_path : "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/delta_action_stats.json"
-initial_position_file : "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/delta_multitask/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized_task_renamed.hdf5"
-task_name : "TransferCubeEETask_dexterous"

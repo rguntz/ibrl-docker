@@ -764,7 +764,6 @@ def clean_corrupted_videos(
     video_base,
     meta_dir,
     video_subdirs,
-    expected_count,
 ):
     """
     Remove corrupted mp4/parquet episodes and reindex everything.
@@ -790,8 +789,6 @@ def clean_corrupted_videos(
 
     print("Parquet files:", count_total_parquet_files(data_base))
 
-    print(check_metadata_indices(meta_dir, expected_count))
-    debug_metadata_indices(meta_dir, expected_count)
 
     print(check_metadata_indices_2(meta_dir))
     print(check_parquet_indices(data_base))
@@ -810,7 +807,6 @@ def clean_cut_videos(
     meta_dir,
     video_subdirs,
     bad_episode_indices,
-    expected_count, 
 ):
     """
     Remove episodes with shortened videos and reindex everything.
@@ -838,9 +834,6 @@ def clean_cut_videos(
     print("Total videos in dataset:", total_videos)
 
     print("Parquet files:", count_total_parquet_files(data_base))
-
-    print(check_metadata_indices(meta_dir, expected_count))
-    debug_metadata_indices(meta_dir, expected_count)
 
     print(check_metadata_indices_2(meta_dir))
     print(check_parquet_indices(data_base))
@@ -938,9 +931,6 @@ def main():
         help="Choose which cleaning operation to run",
     )
 
-    # --- optional / task-specific ---
-    parser.add_argument("--expected-count", type=int, default=2112)
-
     parser.add_argument(
         "--bad-episodes",
         nargs="*",
@@ -958,7 +948,6 @@ def main():
             video_base=args.video_dir,
             meta_dir=args.meta_dir,
             video_subdirs=args.video_subdirs,
-            expected_count=args.expected_count,
         )
 
     elif args.task == "clean_cut_videos":
@@ -975,7 +964,6 @@ def main():
             meta_dir=args.meta_dir,
             video_subdirs=args.video_subdirs,
             bad_episode_indices=bad_episodes,
-            expected_count=2103,
         )
 
     elif args.task == "clean_missing_columns":
@@ -993,12 +981,14 @@ if __name__ == "__main__":
     main()
 
 
-
 """
-python ~/Desktop/AIRE/residual-offpolicy-rl/BMW/check_corrupted_mp4.py \
-    --base-dir ~/Desktop/AIRE/residual-offpolicy-rl/arm=trossen_dual/task=entire_ecu_assembly \
-    --data-dir ~/Desktop/AIRE/residual-offpolicy-rl/arm=trossen_dual/task=entire_ecu_assembly/data \
-    --video-dir ~/Desktop/AIRE/residual-offpolicy-rl/arm=trossen_dual/task=entire_ecu_assembly/videos \
-    --meta-dir ~/Desktop/AIRE/residual-offpolicy-rl/arm=trossen_dual/task=entire_ecu_assembly/meta \
-    --task clean_missing_columns
+python your_script.py \
+    --base-dir /path/to/base \
+    --data-dir /path/to/data \
+    --video-dir /path/to/video \
+    --meta-dir /path/to/meta \
+    --task TASK_NAME \
+    [--video-subdirs video video_2 wrist_video wrist_video_2] \
+    [--expected-count 2112] \
+    [--bad-episodes 1 2 3]
 """

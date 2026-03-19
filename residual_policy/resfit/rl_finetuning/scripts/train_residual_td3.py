@@ -512,7 +512,6 @@ def main(cfg: ResidualTD3DexmgConfig):
         print("Online-only mode: creating minimal offline buffer (unused)")
 
     personal_estimated_offline_transitions = int((RAM_AVAILABLE - 2 - cfg.algo.buffer_size*0.00014)/0.00014)  # ( 0.00014 is the size in giga bytes of a transition)
-    personal_estimated_offline_transitions = 178857
     print("personal_estimated_offline_transitions : ", personal_estimated_offline_transitions)
 
     offline_rb = TensorDictPrioritizedReplayBuffer(
@@ -776,8 +775,6 @@ def main(cfg: ResidualTD3DexmgConfig):
                 rand_actions = pure_random - base_action
 
             next_obs, reward, terminated, truncated, info = env.step(rand_actions)
-
-            raise RuntimeError("stop execution")
 
             done = terminated | truncated
 

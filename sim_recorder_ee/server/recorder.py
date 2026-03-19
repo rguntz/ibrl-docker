@@ -8,14 +8,9 @@ import time
 from pathlib import Path
 import json
 from typing import Optional, Dict, List
-from datetime import datetime
 import h5py
-
 import os
 import cv2
-
-SAVE_DIR = "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder/server/data"
-
 
 import logging
 
@@ -24,39 +19,70 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)  # only show errors
 
 
+# ---------------------------------------------------------------------------
+# Default paths – override by passing arguments to Recorder.__init__
+# ---------------------------------------------------------------------------
+DEFAULT_DATASET_PATH = "data_multi_task/dataset.hdf5"
+DEFAULT_SAVE_DIR = "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder/server/data"
+
+
 class Recorder:
-    """Records episodes with FPS-controlled sampling"""
-    
-    def __init__(self, camera_manager, base_path='data'):
+    """Records episodes with FPS-controlled sampling.
+
+    Parameters
+    ----------
+    camera_manager:
+        Object that exposes ``get_all_frames()``.
+    dataset_path:
+        Path to the HDF5 file used for episode storage.
+    save_dir:
+        Directory used by :meth:`save_frame` to persist individual camera frames.
+    """
+
+    def __init__(
+        self,
+        camera_manager,
+        dataset_path: str = DEFAULT_DATASET_PATH,
+        save_dir: str = DEFAULT_SAVE_DIR,
+    ):
         self.camera_manager = camera_manager
-        self.base_path = Path(base_path)
-        self.base_path.mkdir(parents=True, exist_ok=True)
-        
+        self.dataset_path = Path(dataset_path)
+        self.save_dir = Path(save_dir)
+
         # Recording state
         self._recording = False
         self._recording_thread = None
         self.current_episode_name = None
         self.current_episode_data = None
         self.fps = 15
+
         # Latest externally pushed state (qpos, qvel, action)
         # Access protected by _state_lock
         self.latest_state = None
         self._state_lock = threading.Lock()
-        
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
     def is_recording(self) -> bool:
         return self._recording
-    
+
     def get_num_steps(self) -> int:
         if self.current_episode_data:
             return len(self.current_episode_data['observations'])
         return 0
-    
+
+    # ------------------------------------------------------------------
+    # Recording lifecycle
+    # ------------------------------------------------------------------
+
     def start_recording(self, episode_name: str, fps: float = 15) -> bool:
-        """Start recording new episode"""
+        """Start recording a new episode."""
         if self._recording:
             print("Already recording!")
             return False
-        
+
         self.current_episode_name = episode_name
         self.fps = fps
         self.current_episode_data = {
@@ -64,118 +90,116 @@ class Recorder:
             'start_time': time.time(),
             'observations': [],
             'actions': [],
-            # Per-step full robot state storage (qpos, qvel)
             'qpos': [],
-            'qvel': [], 
-            'reward': [], 
-            'robot0_eef_pos' : [], 
-            'robot0_eef_quat' : [], 
-            'robot0_gripper_qpos' : []
+            'qvel': [],
+            'reward': [],
+            'robot0_eef_pos': [],
+            'robot0_eef_quat': [],
+            'robot0_gripper_qpos': [],
         }
-        
+
         self._recording = True
         self._recording_thread = threading.Thread(target=self._recording_loop)
         self._recording_thread.start()
-        
+
         print(f"🔴 RECORDING STARTED: {episode_name} @ {fps} FPS")
         return True
 
-    def set_latest_state(self, qpos: np.ndarray, qvel: np.ndarray, action: np.ndarray, robot0_eef_pos : np.ndarray,  
-                        robot0_eef_quat : np.ndarray, robot0_gripper_qpos : np.ndarray, reward : np.float64):
-        """Set the most recent state pushed from the client/server.
+    def stop_recording(self) -> Optional[Path]:
+        """Stop recording and persist the episode to HDF5."""
+        if not self._recording:
+            print("Not recording!")
+            return None
 
-        Stored as numpy arrays under a lock so the recording thread can read them.
-        """
+        self._recording = False
+        if self._recording_thread:
+            self._recording_thread.join()
+
+        episode_path = self._save_episode_hdf5()
+
+        print(f"✅ RECORDING STOPPED: {len(self.current_episode_data['observations'])} steps")
+
+        self.current_episode_data = None
+        self.current_episode_name = None
+
+        return episode_path
+
+    # ------------------------------------------------------------------
+    # State synchronisation
+    # ------------------------------------------------------------------
+
+    def set_latest_state(
+        self,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        action: np.ndarray,
+        robot0_eef_pos: np.ndarray,
+        robot0_eef_quat: np.ndarray,
+        robot0_gripper_qpos: np.ndarray,
+        reward: np.float64,
+    ) -> None:
+        """Push the most recent robot state from the client/server."""
         with self._state_lock:
-            # Store copies to avoid shared-mutation issues
             self.latest_state = {
                 'qpos': np.array(qpos, copy=True),
                 'qvel': np.array(qvel, copy=True),
                 'action': np.array(action, copy=True),
-                'robot0_eef_pos' : np.array(robot0_eef_pos, copy=True), 
-                'robot0_eef_quat' : np.array(robot0_eef_quat, copy=True), 
-                'robot0_gripper_qpos' : np.array(robot0_gripper_qpos, copy=True),
-                'reward': np.float64(reward)
+                'robot0_eef_pos': np.array(robot0_eef_pos, copy=True),
+                'robot0_eef_quat': np.array(robot0_eef_quat, copy=True),
+                'robot0_gripper_qpos': np.array(robot0_gripper_qpos, copy=True),
+                'reward': np.float64(reward),
             }
 
     def get_latest_state(self) -> Optional[Dict[str, np.ndarray]]:
-        """Return a copy of the latest state if available, else None."""
+        """Return a deep copy of the latest state, or ``None``."""
         with self._state_lock:
             if self.latest_state is None:
                 return None
             return {k: np.array(v, copy=True) for k, v in self.latest_state.items()}
-    
-    def stop_recording(self) -> Optional[Path]:
-        """Stop recording and save episode"""
-        if not self._recording:
-            print("Not recording!")
-            return None
-        
-        self._recording = False
-        if self._recording_thread:
-            self._recording_thread.join()
-        
-        # Save episode
-        episode_path = self._save_episode_hdf5()
-        
-        print(f"✅ RECORDING STOPPED: {len(self.current_episode_data['observations'])} steps")
-        
-        self.current_episode_data = None
-        self.current_episode_name = None
-        
-        return episode_path
-    
-    def save_frame(self, frame, prefix="cam_high"):
-        """
-        Saves an image frame to SAVE_DIR with an incrementing filename.
-        Does not return anything.
-        """
-        os.makedirs(SAVE_DIR, exist_ok=True)
 
-        # Count existing images for filename increment
-        existing = [f for f in os.listdir(SAVE_DIR) 
-                    if f.startswith(prefix) and f.endswith(".png")]
+    # ------------------------------------------------------------------
+    # Frame saving
+    # ------------------------------------------------------------------
+
+    def save_frame(self, frame: np.ndarray, prefix: str = "cam_high") -> None:
+        """Save a single image frame to :attr:`save_dir`."""
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+
+        existing = [
+            f for f in os.listdir(self.save_dir)
+            if f.startswith(prefix) and f.endswith(".png")
+        ]
         next_id = len(existing)
 
-        filename = f"{prefix}_{next_id:05d}.png"
-        filepath = os.path.join(SAVE_DIR, filename)
+        filepath = self.save_dir / f"{prefix}_{next_id:05d}.png"
+        # OpenCV expects BGR; input is RGB
+        cv2.imwrite(str(filepath), frame[:, :, ::-1])
 
-        # Save image (convert RGB -> BGR for cv2)
-        cv2.imwrite(filepath, frame[:, :, ::-1])
-    
-    def _recording_loop(self):
-        """Background thread that samples at FPS"""
+    # ------------------------------------------------------------------
+    # Internal recording loop
+    # ------------------------------------------------------------------
+
+    def _recording_loop(self) -> None:
+        """Background thread that samples at :attr:`fps`."""
         dt = 1.0 / self.fps
-        
+
         while self._recording:
             loop_start = time.time()
-            
-            # Capture current state
+
             frames = self.camera_manager.get_all_frames()
-            
-            # Get the latest externally pushed state if available, otherwise fall
-            # back to a sensible default (zeros). We attempt to preserve the
-            # expected dimensionality: prefer the pushed action length, else use
-            # a 14-D zero action (dual robots: 7+7), which matches the
-            # teleop client behaviour.
+
             latest = self.get_latest_state()
             if latest is not None:
-                # If the external state provides qpos/qvel/action, use them.
-                action = latest.get('action', None)
-                qpos = latest.get('qpos', None)
-                qvel = latest.get('qvel', None)
-                robot0_eef_pos = latest.get('robot0_eef_pos', None)
-                robot0_eef_quat = latest.get('robot0_eef_quat', None)
-                robot0_gripper_qpos = latest.get('robot0_gripper_qpos', None)
-                reward = latest.get('reward', None)
+                action = latest.get('action')
+                qpos = latest.get('qpos')
+                qvel = latest.get('qvel')
+                robot0_eef_pos = latest.get('robot0_eef_pos')
+                robot0_eef_quat = latest.get('robot0_eef_quat')
+                robot0_gripper_qpos = latest.get('robot0_gripper_qpos')
+                reward = latest.get('reward')
             else:
-                action = None
-                qpos = None
-                qvel = None
-                reward = None
-                robot0_eef_pos = None
-                robot0_eef_quat = None
-                robot0_gripper_qpos = None
+                action = qpos = qvel = reward = None
+                robot0_eef_pos = robot0_eef_quat = robot0_gripper_qpos = None
 
             # Fallback defaults when state pieces are missing
             if action is None:
@@ -184,19 +208,15 @@ class Recorder:
                 qpos = np.zeros(16, dtype=float)
             if qvel is None:
                 qvel = np.zeros(16, dtype=float)
-            if robot0_eef_pos is None : 
+            if robot0_eef_pos is None:
                 robot0_eef_pos = np.zeros(6, dtype=float)
-            if robot0_eef_quat is None : 
+            if robot0_eef_quat is None:
                 robot0_eef_quat = np.zeros(8, dtype=float)
-            if robot0_gripper_qpos is None : 
+            if robot0_gripper_qpos is None:
                 robot0_gripper_qpos = np.zeros(4, dtype=float)
-            if reward is None : 
+            if reward is None:
                 reward = np.float64(0.0)
 
-            # Note: if desired, recorder could also store qpos/qvel from latest
-            # state; currently actions are saved alongside observations.
-            
-            # Store observation + state
             self.current_episode_data['observations'].append(frames)
             self.current_episode_data['actions'].append(action)
             self.current_episode_data['qpos'].append(qpos)
@@ -204,32 +224,26 @@ class Recorder:
             self.current_episode_data['robot0_eef_pos'].append(robot0_eef_pos)
             self.current_episode_data['robot0_eef_quat'].append(robot0_eef_quat)
             self.current_episode_data['robot0_gripper_qpos'].append(robot0_gripper_qpos)
-            self.current_episode_data["reward"].append(reward)
-            
-            # Sleep to maintain FPS
+            self.current_episode_data['reward'].append(reward)
+
             elapsed = time.time() - loop_start
-            
-            
             sleep_time = dt - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
-    
 
-    def _save_episode_hdf5(self, dataset_path="data_multi_task/dataset.hdf5") -> Path:
+    # ------------------------------------------------------------------
+    # HDF5 persistence
+    # ------------------------------------------------------------------
+
+    def _save_episode_hdf5(self) -> Path:
+        """Save the current episode in robomimic-compatible HDF5 format.
+
+        The destination file is :attr:`dataset_path`, which is set at
+        construction time – no path is hard-coded here.
         """
-        Save the current episode in robomimic-compatible HDF5 format.
-        Returns the Path to the dataset_3 file.
-        """
+        self.dataset_path.parent.mkdir(parents=True, exist_ok=True)
 
-        #################################
-        # Visualizer for the file : https://myhdf5.hdfgroup.org/view?url=blob%3Ahttps%3A%2F%2Fmyhdf5.hdfgroup.org%2F90bd6fa6-5c27-405f-add5-488873315377
-        #################################
-
-        dataset_path = Path(dataset_path)
-        dataset_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        mode = "a"  # append mode so multiple episodes can be saved
-        with h5py.File(dataset_path, mode) as f:
+        with h5py.File(self.dataset_path, "a") as f:
             if "data" not in f:
                 data_group = f.create_group("data")
                 env_args = {
@@ -237,116 +251,100 @@ class Recorder:
                     "env_kwargs": {
                         "robots": ["panda"],
                         "controller_configs": {"control_delta": True},
-                    }
+                    },
                 }
                 f["data"].attrs["env_args"] = json.dumps(env_args)
             else:
                 data_group = f["data"]
-            
+
             demo_id = len(data_group)
             demo_name = f"demo_{demo_id}"
             demo_group = data_group.create_group(demo_name)
-            
-            # Save actions
+
             actions_array = np.array(self.current_episode_data["actions"], dtype=np.float32)
-            
             demo_group.create_dataset("actions", data=actions_array)
-            
-            # Save dummy rewards
+
             rewards_array = np.array(self.current_episode_data["reward"], dtype=np.float32)
             demo_group.create_dataset("rewards", data=rewards_array)
-            
-            # Save observations
+
             obs_group = demo_group.create_group("obs")
             first_obs = self.current_episode_data["observations"][0]
             for cam_name in first_obs.keys():
-
                 cam_images = [obs[cam_name] for obs in self.current_episode_data["observations"]]
                 cam_array = np.stack(cam_images, axis=0).astype(np.uint8)
-
-                # Reorder image axes (T, H, W, C) → (T, C, H, W) => for the specific format of the ibrl paper. 
+                # (T, H, W, C) → (T, C, H, W)
                 cam_array = np.transpose(cam_array, (0, 3, 1, 2))
-
                 obs_group.create_dataset(f"{cam_name}_image", data=cam_array, compression="gzip")
 
-            # Save proprioception separately
-            qpos_array = np.array(self.current_episode_data["qpos"], dtype=np.float32)
-            qvel_array = np.array(self.current_episode_data["qvel"], dtype=np.float32)
-            robot0_eef_pos_array = np.array(self.current_episode_data["robot0_eef_pos"], dtype=np.float32)
-            robot0_eef_quat_array = np.array(self.current_episode_data['robot0_eef_quat'], dtype=np.float32)
-            robot0_gripper_qpos_array = np.array(self.current_episode_data['robot0_gripper_qpos'], dtype=np.float32)
+            obs_group.create_dataset("qpos",
+                data=np.array(self.current_episode_data["qpos"], dtype=np.float32))
+            obs_group.create_dataset("qvel",
+                data=np.array(self.current_episode_data["qvel"], dtype=np.float32))
+            obs_group.create_dataset("robot0_eef_pos",
+                data=np.array(self.current_episode_data["robot0_eef_pos"], dtype=np.float32))
+            obs_group.create_dataset("robot0_eef_quat",
+                data=np.array(self.current_episode_data["robot0_eef_quat"], dtype=np.float32))
+            obs_group.create_dataset("robot0_gripper_qpos",
+                data=np.array(self.current_episode_data["robot0_gripper_qpos"], dtype=np.float32))
 
-            obs_group.create_dataset("qpos", data=qpos_array)
-            obs_group.create_dataset("qvel", data=qvel_array)
-            obs_group.create_dataset("robot0_eef_pos", data=robot0_eef_pos_array)
-            obs_group.create_dataset("robot0_eef_quat", data=robot0_eef_quat_array)
-            obs_group.create_dataset("robot0_gripper_qpos", data=robot0_gripper_qpos_array)
+            print(f"💾 Saved {demo_name} to {self.dataset_path}")
 
-            print(f"💾 Saved {demo_name} to {dataset_path}")
-        
-        # ✅ Return the path to the dataset_3
-        return dataset_path
+        return self.dataset_path
 
-
+    # ------------------------------------------------------------------
+    # Episode management
+    # ------------------------------------------------------------------
 
     def list_episodes(self) -> List[Dict]:
-        """List all recorded episodes from HDF5 dataset_3"""
+        """List all recorded episodes from :attr:`dataset_path`."""
         episodes = []
-        dataset_path = Path("data_multi_task/dataset.hdf5")
-        
-        if not dataset_path.exists():
+
+        if not self.dataset_path.exists():
             return episodes
-        
+
         try:
-            with h5py.File(dataset_path, "r") as f:
+            with h5py.File(self.dataset_path, "r") as f:
                 if "data" not in f:
                     return episodes
-                
-                data_group = f["data"]
-                for demo_name in sorted(data_group.keys()):
-                    demo_group = data_group[demo_name]
-                    
-                    # Get number of steps from actions dataset_3
-                    num_steps = len(demo_group.get('actions', [])) if 'actions' in demo_group else 0
-                    
+
+                for demo_name in sorted(f["data"].keys()):
+                    demo_group = f["data"][demo_name]
+                    num_steps = (
+                        len(demo_group["actions"]) if "actions" in demo_group else 0
+                    )
                     episodes.append({
                         'id': demo_name,
                         'name': demo_name,
                         'num_steps': num_steps,
-                        'duration': num_steps / 15,  # Assuming 15 FPS default
-                        'path': str(dataset_path)
+                        'duration': num_steps / self.fps,
+                        'path': str(self.dataset_path),
                     })
         except Exception as e:
             print(f"⚠️  Error reading episodes from HDF5: {e}")
-        
+
         return episodes
-    
+
     def delete_episode(self, episode_id: str) -> bool:
-        """Delete an episode from HDF5 dataset_3"""
-        dataset_path = Path("data_multi_task/dataset.hdf5")
-        
-        if not dataset_path.exists():
-            print(f"⚠️  dataset_3 file not found: {dataset_path}")
+        """Delete *episode_id* from :attr:`dataset_path`."""
+        if not self.dataset_path.exists():
+            print(f"⚠️  dataset file not found: {self.dataset_path}")
             return False
-        
+
         try:
-            with h5py.File(dataset_path, "r+") as f:
+            with h5py.File(self.dataset_path, "r+") as f:
                 if "data" not in f:
-                    print(f"⚠️  No 'data' group in HDF5 file")
+                    print("⚠️  No 'data' group in HDF5 file")
                     return False
-                
+
                 data_group = f["data"]
-                
-                # episode_id should be the demo_name (e.g., "demo_0")
                 if episode_id not in data_group:
                     print(f"⚠️  Episode '{episode_id}' not found in HDF5 file")
                     return False
-                
-                # Delete the demo group
+
                 del data_group[episode_id]
                 print(f"✗ Deleted episode: {episode_id} from HDF5")
                 return True
-                
+
         except Exception as e:
             print(f"❌ Error deleting episode '{episode_id}': {e}")
             return False

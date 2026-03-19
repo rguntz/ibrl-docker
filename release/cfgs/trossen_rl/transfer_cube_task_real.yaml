@@ -33,5 +33,5 @@ denormalization_path_bc : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_e
 initial_position_file : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5"
 denormalization_path_rl : "/home/qtf5422/Desktop/AIRE/ibrl-docker/sim_recorder_ee_real/server/data/cube/delta_action_stats_rl.json"
 
-load_pretrained_agent : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/run_ee_rl_real_cube_1/latest.pt"  
-load_policy_only: 0 
+#load_pretrained_agent : "/home/qtf5422/Desktop/AIRE/DATA/IBRL/run_ee_rl_real_cube_1/latest.pt"  
+#load_policy_only: 0 

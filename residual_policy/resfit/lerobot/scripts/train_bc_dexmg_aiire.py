@@ -519,7 +519,7 @@ def main(cfg: argparse.Namespace):
                     },
                     step=step,
                 )
-
+    
         # Checkpointing ----------------------------------------------
         if (step % cfg.save_freq == 0 and step != start_step) or step + 1 == cfg.steps:
             val_loss = run_validation(policy, val_loader, device, max_batches=cfg.val_max_batches)

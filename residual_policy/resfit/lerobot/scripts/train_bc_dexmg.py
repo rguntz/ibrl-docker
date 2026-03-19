@@ -599,8 +599,6 @@ def main(cfg: argparse.Namespace):
     print("cfg training : ", cfg)
     print(cfg.eval_env, cfg.eval_num_envs, cfg.eval_camera_size, cfg.eval_render_size, cfg.eval_video_key)
 
-    raise RuntimeError("stopping execution")
-
     # ---------------------------------------------------------------------
     # Dataloader
     # ---------------------------------------------------------------------

@@ -21,14 +21,20 @@ GRIPPER_INDICES_16D = [7, 15]
 # For 14D delta actions: [pos_delta_L_3d, rot_delta_L_3d, grip_delta_L_1d, pos_delta_R_3d, rot_delta_R_3d, grip_delta_R_1d]
 GRIPPER_INDICES_14D = [6, 13]
 
-def filter_demo_states(qpos_full, threshold):
+def filter_demo_states_with_reward(qpos_full, rewards, threshold):
+    ## The new implementation doesnt treshold when the reward has been reached. 
+
     """
-    Filter states based on qpos (joint positions) changes.
+    Filter states based on qpos changes, but always keep states where reward == 1.
+
     Args:
-        qpos_full: array of shape (T, 16) - joint positions
-        threshold: minimum norm change to keep a state
+        qpos_full: array of shape (T, D) — joint positions
+        rewards: array of shape (T,) — scalar reward per step
+        threshold: minimum norm change in qpos to keep a state (ignored if reward == 1)
+    Returns:
+        kept_idx: list of indices to keep
     """
-    states = qpos_full[:, :16]
+    states = qpos_full[:, :16]  # Assume first 16 dims are joint states
     T = states.shape[0]
     if T == 0:
         return []
@@ -37,7 +43,12 @@ def filter_demo_states(qpos_full, threshold):
     last_state = states[0].copy()
 
     for t in range(1, T):
-        if np.linalg.norm(states[t] - last_state) > threshold:
+        # Always keep if reward == 1
+        if rewards[t] == 1:
+            kept_idx.append(t)
+            last_state = states[t].copy()  # Update last_state to avoid re-adding same state
+        # Otherwise, apply threshold
+        elif np.linalg.norm(states[t] - last_state) > threshold:
             kept_idx.append(t)
             last_state = states[t].copy()
 
@@ -57,7 +68,7 @@ def process_dataset(input_file, output_file, threshold):
         # 🔹 Create 'data' group and preserve its attributes
         f_data_in = fin["data"]
         f_data_out = fout.create_group("data")
-        for k, v in f_data_in.attrs.items():  # PRESERVE 'env_args' here
+        for k, v in f_data_in.attrs.items():  # PRESERVE 'env_args'
             f_data_out.attrs[k] = v
 
         demo_names = list(f_data_in.keys())
@@ -71,7 +82,15 @@ def process_dataset(input_file, output_file, threshold):
             qpos_in = obs_in["qpos"][:]
             T, _ = qpos_in.shape
 
-            kept_idx = filter_demo_states(qpos_in, threshold)
+            # Must have rewards to apply constraint
+            if "rewards" not in grp_in:
+                print(f"  Warning: 'rewards' not found in {demo_name}. Skipping.")
+                continue
+
+            rewards_in = grp_in["rewards"][:]
+
+            # Apply new filtering that preserves reward==1 steps
+            kept_idx = filter_demo_states_with_reward(qpos_in, rewards_in, threshold)
             if len(kept_idx) == 0:
                 print(f"  Warning: no indices kept for {demo_name}. Skipping.")
                 continue
@@ -79,10 +98,8 @@ def process_dataset(input_file, output_file, threshold):
             grp_out = f_data_out.create_group(demo_name)
 
             # ----- Rewards -----
-            if "rewards" in grp_in:
-                rewards_in = grp_in["rewards"][:]
-                rewards_out = rewards_in[kept_idx]
-                grp_out.create_dataset("rewards", data=rewards_out, compression="gzip")
+            rewards_out = rewards_in[kept_idx]
+            grp_out.create_dataset("rewards", data=rewards_out, compression="gzip")
 
             # ----- Observations -----
             obs_out_grp = grp_out.create_group("obs")
@@ -95,7 +112,7 @@ def process_dataset(input_file, output_file, threshold):
                     for attr_k, attr_v in obs_in[key].attrs.items():
                         grp.attrs[attr_k] = attr_v
 
-            # ----- Actions based on state deltas -----
+            # ----- Actions -----
             if "actions" in grp_in:
                 actions_in = grp_in["actions"][:]
                 actions_out = actions_in[kept_idx]
@@ -111,10 +128,84 @@ def process_dataset(input_file, output_file, threshold):
                         for k, v in grp_in[key].attrs.items():
                             new_grp.attrs[k] = v
 
-
     print("\nDone. Filtered dataset written to:", output_file)
 
 
+def trim_first_n_steps(input_file, output_file, n_steps=15):
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+
+    with h5py.File(input_file, "r") as fin, h5py.File(output_file, "w") as fout:
+
+        # 🔹 Copy root-level attributes
+        for k, v in fin.attrs.items():
+            fout.attrs[k] = v
+
+        # 🔹 Create 'data' group and preserve its attributes
+        f_data_in = fin["data"]
+        f_data_out = fout.create_group("data")
+        for k, v in f_data_in.attrs.items():
+            f_data_out.attrs[k] = v
+
+        demo_names = list(f_data_in.keys())
+        print("Found demos:", len(demo_names))
+
+        for demo_name in demo_names:
+            grp_in = f_data_in[demo_name]
+            print(f"\nProcessing demo: {demo_name}")
+
+            # Determine total number of timesteps from a canonical field (e.g., qpos)
+            if "obs" not in grp_in or "qpos" not in grp_in["obs"]:
+                print(f"  Warning: 'obs/qpos' not found in {demo_name}. Skipping.")
+                continue
+
+            T = grp_in["obs"]["qpos"].shape[0]
+            if T <= n_steps:
+                print(f"  Warning: demo {demo_name} has {T} steps <= {n_steps}. Skipping.")
+                continue
+
+            kept_idx = np.arange(n_steps, T)  # Keep everything after first n_steps
+
+            grp_out = f_data_out.create_group(demo_name)
+
+            # ----- Rewards -----
+            if "rewards" in grp_in:
+                rewards_in = grp_in["rewards"][:]
+                rewards_out = rewards_in[kept_idx]
+                grp_out.create_dataset("rewards", data=rewards_out, compression="gzip")
+
+            # ----- Observations -----
+            obs_in = grp_in["obs"]
+            obs_out_grp = grp_out.create_group("obs")
+            for key in obs_in.keys():
+                data = obs_in[key]
+                if isinstance(data, h5py.Dataset):
+                    obs_out_grp.create_dataset(key, data=data[kept_idx], compression="gzip")
+                else:
+                    # Handle nested groups (e.g., images with attrs)
+                    subgrp = obs_out_grp.create_group(key)
+                    for attr_k, attr_v in data.attrs.items():
+                        subgrp.attrs[attr_k] = attr_v
+
+            # ----- Actions -----
+            if "actions" in grp_in:
+                actions_in = grp_in["actions"][:]
+                actions_out = actions_in[kept_idx]
+                grp_out.create_dataset("actions", data=actions_out, compression="gzip")
+
+            # ----- Copy other non-obs keys (e.g., 'durations', 'valid', etc.) -----
+            for key in grp_in.keys():
+                if key not in ("obs", "actions", "rewards"):
+                    try:
+                        # Attempt direct copy (works for datasets or groups without shape)
+                        grp_in.copy(key, grp_out)
+                    except (TypeError, AttributeError, RuntimeError):
+                        # Fallback: recreate group and copy attributes only
+                        new_grp = grp_out.create_group(key)
+                        for k, v in grp_in[key].attrs.items():
+                            new_grp.attrs[k] = v
+
+    print("\nDone. Trimmed dataset written to:", output_file)
 
 def modify_rewards_and_create_dones(input_path, output_path):
     """
@@ -204,28 +295,23 @@ def inspect_right_arm(file):
         robot0_eef_pos = obs["robot0_eef_pos"][:, 3 :]       # shape (T, 3)
         robot0_eef_quat = obs["robot0_eef_quat"][:, 4 :]     # shape (T, 4)
         robot0_gripper_qpos = obs["robot0_gripper_qpos"][:, 1:]  # shape (T, 1) — assuming 2-DoF gripper, take one
+        robot0_eef_aa = obs["robot0_eef_aa"][:, 3:]
 
         # Concatenate into full 8-D right arm observation
-        right_arm_obs = np.concatenate([robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos], axis=1)  # (T, 8)
+        right_arm_obs = np.concatenate([robot0_eef_pos, robot0_eef_aa, robot0_gripper_qpos], axis=1)  # (T, 8)
 
         # Right arm action: last 8 dimensions of action vector (assuming 16-D total)
-        if action.shape[1] == 8:
-            # For backward compatibility: if only 8-D, assume it's already right arm only
-            right_arm_action = action
-        elif action.shape[1] == 16:
-            right_arm_action = action[:, 8:]  # last 8 = right arm
-        else:
-            raise ValueError(f"Unexpected action dimension: {action.shape[1]}. Expected 8 or 16.")
+        right_arm_action = action[:, 7:]  # last 8 = right arm
 
         T = right_arm_obs.shape[0]
         steps = range(T)
 
         # --- Plot all 8 dimensions: pos (3), quat (4), gripper (1) ---
-        dim_names = ["EEF X", "EEF Y", "EEF Z", "QX", "QY", "QZ", "QW", "Gripper"]
+        dim_names = ["EEF X", "EEF Y", "EEF Z", "RX", "RY", "RZ", "Gripper"]
 
-        fig, axes = plt.subplots(8, 1, figsize=(12, 16), sharex=True)
+        fig, axes = plt.subplots(7, 1, figsize=(12, 16), sharex=True)
 
-        for i in range(8):
+        for i in range(7):
             axes[i].plot(steps, right_arm_obs[:, i], label=f'{dim_names[i]} (obs)', color='blue')
             axes[i].plot(steps, right_arm_action[:, i], label=f'{dim_names[i]} (action)', color='red', linestyle='--')
             axes[i].set_ylabel(dim_names[i])
@@ -377,107 +463,44 @@ def shift_actions_with_clipping(input_path, output_path, k):
         print(f"✅ Actions shifted with k={k}, clipped to last action. Saved to: {output_path}")
 
 
-def quat_to_delta_axis_angle(q_current, q_target):
+def compute_delta_action_for_arm_new(eef_pos, eef_quat, gripper_qpos, arm_action):
     """
-    Compute delta orientation as axis-angle vector from current to target.
-    
-    Assumes quaternions are in [w, x, y, z] format (common in MuJoCo).
-    Converts to scipy format [x, y, z, w] for computation.
+    Compute delta action for one arm, where arm_action uses angle-axis for rotation.
     
     Args:
-        q_current: np.array of shape (4,) in [w, x, y, z] format
-        q_target:  np.array of shape (4,) in [w, x, y, z] format
+        eef_pos: (3,) — current position
+        eef_quat: (4,) — current orientation in [w, x, y, z]
+        gripper_qpos: (1,) — unused
+        arm_action: (7,) — [pos_target(3), rot_target_aa(3), grip_target(1)]
 
     Returns:
-        r: np.array of shape (3,) — axis-angle delta rotation vector
+        delta_action: (7,) — [pos_delta(3), rot_delta_aa(3), grip_absolute(1)]
     """
-    # Convert from [w, x, y, z] to scipy format [x, y, z, w]
-    q_cur_scipy = np.array([q_current[1], q_current[2], q_current[3], q_current[0]])
-    q_tar_scipy = np.array([q_target[1], q_target[2], q_target[3], q_target[0]])
+    pos_target = arm_action[0:3]
+    rot_target_aa = arm_action[3:6]
+    grip_target = arm_action[6:7]
 
-    # Create Rotation objects
+    # Position delta
+    pos_delta = pos_target - eef_pos  # (3,)
+
+    # Convert current quat to Rotation
+    q_cur_scipy = np.array([eef_quat[1], eef_quat[2], eef_quat[3], eef_quat[0]])  # [x,y,z,w]
     R_cur = R.from_quat(q_cur_scipy)
-    R_tar = R.from_quat(q_tar_scipy)
+
+    # Convert target angle-axis to Rotation
+    R_tar = R.from_rotvec(rot_target_aa)
 
     # Compute relative rotation: R_rel = R_tar * R_cur^{-1}
     R_rel = R_tar * R_cur.inv()
 
-    # Convert to rotation vector (axis-angle): 3D vector
-    r = R_rel.as_rotvec()
+    # Get delta as rotation vector (axis-angle)
+    rot_delta_aa = R_rel.as_rotvec()  # (3,)
 
-    return r
+    # Gripper stays absolute
+    grip_absolute = grip_target
 
+    return np.concatenate([pos_delta, rot_delta_aa, grip_absolute])  # (7,)
 
-def extract_arm_obs_and_action(obs, action, arm_idx):
-    """
-    Extract right arm (arm_idx=1) or left arm (arm_idx=0) observation and action.
-    
-    Observation format:
-      - robot0_eef_pos: [arm0_pos_3d, arm1_pos_3d]
-      - robot0_eef_quat: [arm0_quat_4d, arm1_quat_4d]
-      - robot0_gripper_qpos: [arm0_grip_1d, arm1_grip_1d]
-    
-    Action format (16D):
-      - [pos_left_3d, quat_left_4d, grip_left_1d, pos_right_3d, quat_right_4d, grip_right_1d]
-    
-    Args:
-        obs: dict-like object with robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos
-        action: np.array of shape (16,) for a single timestep
-        arm_idx: 0 for left arm, 1 for right arm
-
-    Returns:
-        eef_pos, eef_quat, gripper_qpos, arm_action: extracted for the specified arm
-    """
-    if arm_idx == 0:  # Left arm
-        eef_pos = obs["robot0_eef_pos"][0:3]
-        eef_quat = obs["robot0_eef_quat"][0:4]
-        gripper_qpos = obs["robot0_gripper_qpos"][0:1]
-        arm_action = action[0:8]  # [pos_left_3d, quat_left_4d, grip_left_1d]
-    elif arm_idx == 1:  # Right arm
-        eef_pos = obs["robot0_eef_pos"][3:6]
-        eef_quat = obs["robot0_eef_quat"][4:8]
-        gripper_qpos = obs["robot0_gripper_qpos"][1:2]
-        arm_action = action[8:16]  # [pos_right_3d, quat_right_4d, grip_right_1d]
-    else:
-        raise ValueError(f"arm_idx must be 0 or 1, got {arm_idx}")
-
-    return eef_pos, eef_quat, gripper_qpos, arm_action
-
-
-def compute_delta_action_for_arm(eef_pos, eef_quat, gripper_qpos, arm_action):
-    """
-    Compute delta action (position delta, rotation delta) for one arm.
-    Gripper remains as absolute leader robot value (no delta computation).
-    
-    Position delta: target_pos - current_pos
-    Rotation delta: axis-angle from current_quat to target_quat
-    Gripper: absolute target_grip value (unchanged from leader)
-    
-    Args:
-        eef_pos: np.array of shape (3,) — current end effector position
-        eef_quat: np.array of shape (4,) in [w, x, y, z] — current end effector quaternion
-        gripper_qpos: np.array of shape (1,) — current gripper position (unused)
-        arm_action: np.array of shape (8,) — [pos_target_3d, quat_target_4d, grip_target_1d]
-
-    Returns:
-        delta_action: np.array of shape (7,) — [pos_delta_3d, rot_delta_3d, grip_absolute_1d]
-    """
-    # Extract components from arm_action
-    pos_target = arm_action[0:3]
-    quat_target = arm_action[3:7]
-    grip_target = arm_action[7:8]
-
-    # Compute deltas for position and rotation
-    pos_delta = pos_target - eef_pos  # (3,)
-    rot_delta = quat_to_delta_axis_angle(eef_quat, quat_target)  # (3,)
-    
-    # Gripper remains absolute (no delta computation)
-    grip_absolute = grip_target  # (1,) - absolute leader value
-
-    # Concatenate: [pos_delta_3d, rot_delta_3d, grip_absolute_1d]
-    delta_action = np.concatenate([pos_delta, rot_delta, grip_absolute])  # (7,)
-
-    return delta_action
 
 
 def convert_actions_to_delta(input_path, output_path):
@@ -546,14 +569,18 @@ def convert_actions_to_delta(input_path, output_path):
                 grip_left = robot0_gripper_qpos[t, 0:1]
                 grip_right = robot0_gripper_qpos[t, 1:2]
 
-                # Get absolute action for this timestep
-                action_t = actions_abs[t]  # (16,)
+                # Now input actions are 14D: [pos_L(3), aa_L(3), grip_L(1), pos_R(3), aa_R(3), grip_R(1)]
+                action_t = actions_abs[t]  # (14,)
 
-                # Compute delta for left arm
-                delta_left = compute_delta_action_for_arm(eef_pos_left, eef_quat_left, grip_left, action_t[0:8])
+                # Left arm: indices 0–6
+                delta_left = compute_delta_action_for_arm_new(
+                    eef_pos_left, eef_quat_left, grip_left, action_t[0:7]
+                )
 
-                # Compute delta for right arm
-                delta_right = compute_delta_action_for_arm(eef_pos_right, eef_quat_right, grip_right, action_t[8:16])
+                # Right arm: indices 7–13
+                delta_right = compute_delta_action_for_arm_new(
+                    eef_pos_right, eef_quat_right, grip_right, action_t[7:14]
+                )
 
                 # Concatenate: [delta_L_7d, delta_R_7d]
                 actions_delta[t] = np.concatenate([delta_left, delta_right])  # (14,)
@@ -842,17 +869,18 @@ def truncate_demos_at_k_dones(input_path, output_path, k):
     print(f"\n✅ Truncation complete! Saved to: {output_path}")
     return output_path
 
-
 def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.json"):
     """
-    Plot and analyze right arm delta actions (14D format).
-    
+    Plot and analyze right arm delta actions (14D format), along with rewards and dones.
+
     14D action structure: [pos_delta_L_3d, rot_delta_L_3d, grip_delta_L_1d, pos_delta_R_3d, rot_delta_R_3d, grip_delta_R_1d]
-    Right arm is indices 7-13 (last 7 dimensions)
-    
+    Right arm is indices 7–13 (last 7 dimensions)
+
     Plots:
-    - Current position vs position delta
+    - Current position vs position delta (3 dims)
     - Current gripper vs gripper delta
+    - Rewards over time
+    - Dones over time
     """
     with h5py.File(file, "r") as f:
         f_data = f["data"]
@@ -864,64 +892,71 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
 
         actions_delta = f_demo_0["actions"][:]  # (T, 14)
         obs = f_demo_0["obs"]
+        rewards = f_demo_0["rewards"][:]        # (T,)
+        dones = f_demo_0["dones"][:]            # (T,)
 
         # Extract right arm observations (current state)
-        robot0_eef_pos = obs["robot0_eef_pos"][:, 3:]  # (T, 3) - right arm pos
+        robot0_eef_pos = obs["robot0_eef_pos"][:, 3:]      # (T, 3) - right arm pos
         robot0_gripper_qpos = obs["robot0_gripper_qpos"][:, 1:]  # (T, 1) - right arm gripper
 
-        # Extract right arm delta actions (indices 7-13)
+        # Extract right arm delta actions (indices 7–13)
         right_arm_delta = actions_delta[:, 7:14]  # (T, 7)
         # Structure: [pos_delta_3d, rot_delta_3d, grip_delta_1d]
 
         T = right_arm_delta.shape[0]
-        
-        for i in range(T) : 
-            print("right_arm_delta : ", right_arm_delta[i, :])
-
         steps = range(T)
 
-        # --- Plot: Position and Gripper ---
-        dim_names = ["Pos X", "Pos Y", "Pos Z", "Grip"]
-        
-        fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+        # --- Plot: Position, Gripper, Rewards, Dones ---
+        fig, axes = plt.subplots(6, 1, figsize=(12, 14), sharex=True)
 
-        # Position plots (indices 0-2)
+        # Position plots (indices 0–2)
+        pos_dim_names = ["Pos X", "Pos Y", "Pos Z"]
         for i in range(3):
-            axes[i].plot(steps, robot0_eef_pos[:, i], label=f'{dim_names[i]} (current)', color='blue', linewidth=1.5)
-            axes[i].plot(steps, right_arm_delta[:, i], label=f'{dim_names[i]} (delta)', color='red', linestyle='--', linewidth=1.5)
+            axes[i].plot(steps, robot0_eef_pos[:, i], label=f'{pos_dim_names[i]} (current)', color='blue', linewidth=1.5)
+            axes[i].plot(steps, right_arm_delta[:, i], label=f'{pos_dim_names[i]} (delta)', color='red', linestyle='--', linewidth=1.5)
             axes[i].axhline(0, color='black', linewidth=0.5, linestyle=':')
-            axes[i].set_ylabel(dim_names[i])
+            axes[i].set_ylabel(pos_dim_names[i])
             axes[i].legend(loc='upper right')
             axes[i].grid(True, alpha=0.3)
 
-        # Gripper plot
+        # Gripper plot (index 6 of delta)
         axes[3].plot(steps, robot0_gripper_qpos[:, 0], label='Grip (current)', color='blue', linewidth=1.5)
         axes[3].plot(steps, right_arm_delta[:, 6], label='Grip (delta)', color='red', linestyle='--', linewidth=1.5)
         axes[3].axhline(0, color='black', linewidth=0.5, linestyle=':')
-        axes[3].set_ylabel(dim_names[3])
+        axes[3].set_ylabel("Gripper")
         axes[3].legend(loc='upper right')
         axes[3].grid(True, alpha=0.3)
 
-        axes[-1].set_xlabel("Step")
-        plt.suptitle("Right Arm: Current Position & Gripper vs Delta Actions (First Demo Only)")
+        # Rewards plot
+        axes[4].plot(steps, rewards, label='Reward', color='green', linewidth=1.5, marker='o', markersize=2)
+        axes[4].set_ylabel("Reward")
+        axes[4].set_ylim(-0.1, 1.1)
+        axes[4].legend(loc='upper right')
+        axes[4].grid(True, alpha=0.3)
+
+        # Dones plot
+        axes[5].plot(steps, dones, label='Done', color='orange', linewidth=1.5, marker='s', markersize=2)
+        axes[5].set_ylabel("Done")
+        axes[5].set_xlabel("Step")
+        axes[5].set_ylim(-0.1, 1.1)
+        axes[5].legend(loc='upper right')
+        axes[5].grid(True, alpha=0.3)
+
+        plt.suptitle("Right Arm: State vs Delta Actions + Rewards & Dones (First Demo Only)")
         plt.tight_layout(rect=[0, 0, 1, 0.97])
         plt.show()
 
-        # --- Compute global min/max across ALL demos ---
+        # --- Compute global min/max across ALL demos (only delta actions) ---
         print("\nComputing global min and max of delta actions across all demos...")
         global_min = np.full(7, np.inf)
         global_max = np.full(7, -np.inf)
 
         for demo_key in demo_keys:
             demo = f_data[demo_key]
-            actions_delta = demo["actions"][:]  # (T, 14)
-
-            # Extract right arm delta actions
-            right_arm_delta = actions_delta[:, 7:14]  # (T, 7)
-
-            # Update global min/max per dimension
-            global_min = np.minimum(global_min, np.min(right_arm_delta, axis=0))
-            global_max = np.maximum(global_max, np.max(right_arm_delta, axis=0))
+            actions_delta_full = demo["actions"][:]  # (T, 14)
+            right_arm_delta_full = actions_delta_full[:, 7:14]  # (T, 7)
+            global_min = np.minimum(global_min, np.min(right_arm_delta_full, axis=0))
+            global_max = np.maximum(global_max, np.max(right_arm_delta_full, axis=0))
 
         # Prepare dictionary for JSON
         delta_dim_names = ["Pos X Delta", "Pos Y Delta", "Pos Z Delta", "Rot X Delta", "Rot Y Delta", "Rot Z Delta", "Grip"]
@@ -937,28 +972,191 @@ def plot_right_arm_delta_actions(file, output_json="delta_action_stats_not_use.j
             json.dump(stats, f_out, indent=4)
 
         print(f"\nGlobal min/max saved to: {os.path.abspath(output_json)}")
-
-        # Also print to console
         print("\nGlobal Min and Max of Delta Actions (Right Arm) across ALL demos:")
         print("-" * 70)
         for name in delta_dim_names:
             print(f"{name:15}: min = {stats[name]['min']: .6f}, max = {stats[name]['max']: .6f}")
 
 
-######################################################################################################################################################################################
-file_original = "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1.hdf5"
+def extract_first_demo(input_path, output_path="dataset_final_demo0.hdf5"):
+    """
+    Extract only the first demo from a dataset and save it to a new HDF5 file.
+    
+    Args:
+        input_path (str or Path): Path to input HDF5 file with multiple demos
+        output_path (str or Path): Path to output HDF5 file with only the first demo
+                                  (default: 'dataset_final_demo0.hdf5')
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(input_path, "r") as fin, h5py.File(output_path, "w") as fout:
+        # Copy root-level attributes
+        for k, v in fin.attrs.items():
+            fout.attrs[k] = v
+
+        # Create 'data' group and copy its attributes
+        data_in = fin["data"]
+        data_out = fout.create_group("data")
+        for k, v in data_in.attrs.items():
+            data_out.attrs[k] = v
+
+        # Get first demo key
+        demo_keys = sorted(data_in.keys())
+        if not demo_keys:
+            raise ValueError("Input dataset has no demos!")
+        
+        first_demo_key = demo_keys[0]
+        print(f"Extracting demo: {first_demo_key}")
+
+        # Copy first demo to output
+        demo_in = data_in[first_demo_key]
+        demo_out = data_out.create_group(first_demo_key)
+
+        # Copy all datasets and groups from first demo
+        for key in demo_in.keys():
+            if isinstance(demo_in[key], h5py.Dataset):
+                demo_out.create_dataset(key, data=demo_in[key][:], compression="gzip")
+            elif isinstance(demo_in[key], h5py.Group):
+                # Copy group structure (e.g., 'obs' group)
+                group_in = demo_in[key]
+                group_out = demo_out.create_group(key)
+                for sub_key in group_in.keys():
+                    group_out.create_dataset(sub_key, data=group_in[sub_key][:], compression="gzip")
+
+    print(f"✅ First demo extracted successfully!")
+    print(f"Input:  {input_path} (contains {len(demo_keys)} demos)")
+    print(f"Output: {output_path} (contains only '{first_demo_key}')")
+    return output_path
+
+def check_demos_with_reward_one(file_path):
+    """
+    Check every demo in the dataset to ensure it contains at least one step where reward == 1.
+    If a demo lacks such a step, print its name.
+
+    Args:
+        file_path (str or Path): Path to the HDF5 dataset file.
+    """
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Dataset file not found: {file_path}")
+
+    with h5py.File(file_path, "r") as f:
+        data_group = f["data"]
+        demo_names = list(data_group.keys())
+        print(f"Checking {len(demo_names)} demos for presence of reward == 1...")
+
+        demos_without_success = []
+
+        for demo_name in demo_names:
+            demo = data_group[demo_name]
+            if "rewards" not in demo:
+                print(f"⚠️ Warning: 'rewards' key missing in {demo_name}")
+                demos_without_success.append(demo_name)
+                continue
+
+            rewards = demo["rewards"][:]
+            if not np.any(rewards == 1):
+                print(f"❌ Demo '{demo_name}' has no step with reward == 1.")
+                demos_without_success.append(demo_name)
+
+        if not demos_without_success:
+            print("✅ All demos contain at least one step with reward == 1.")
+        else:
+            print(f"\nFound {len(demos_without_success)} demo(s) without any reward == 1.")
+
+    return demos_without_success
+
+def print_action_min_max_per_dimension(file_path):
+    """
+    Print the global min and max for each dimension of the 'actions' array across all demos.
+    
+    Args:
+        file_path (str or Path): Path to the HDF5 dataset file containing demos under 'data'.
+    """
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Dataset file not found: {file_path}")
+    
+    with h5py.File(file_path, "r") as f:
+        data_group = f["data"]
+        demo_keys = list(data_group.keys())
+        
+        if not demo_keys:
+            raise ValueError("No demos found in the dataset.")
+        
+        # Initialize min/max trackers using the first demo
+        first_demo = data_group[demo_keys[0]]
+        if "actions" not in first_demo:
+            raise KeyError(f"'actions' key not found in demo {demo_keys[0]}")
+        
+        actions = first_demo["actions"][:]
+        if actions.size == 0:
+            raise ValueError("Actions array is empty.")
+        
+        action_dim = actions.shape[1]
+        global_min = np.full(action_dim, np.inf)
+        global_max = np.full(action_dim, -np.inf)
+        
+        # Iterate over all demos to compute global min/max per dimension
+        for demo_name in demo_keys:
+            demo = data_group[demo_name]
+            if "actions" not in demo:
+                print(f"⚠️ Warning: 'actions' missing in {demo_name}, skipping.")
+                continue
+            acts = demo["actions"][:]
+            if acts.shape[1] != action_dim:
+                raise ValueError(f"Inconsistent action dimension in {demo_name}: expected {action_dim}, got {acts.shape[1]}")
+            global_min = np.minimum(global_min, np.min(acts, axis=0))
+            global_max = np.maximum(global_max, np.max(acts, axis=0))
+        
+        # Print results
+        print(f"Action dimension: {action_dim}")
+        print("-" * 50)
+        for i in range(action_dim):
+            print(f"Action[{i:2d}]: min = {global_min[i]: .6f}, max = {global_max[i]: .6f}")
+
+# #####################################################################################################################################################################################
+file_original = "lifting.hdf5"
 inspect_right_arm(file_original)
-process_dataset(input_file=file_original, output_file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded.hdf5", threshold=0.01)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded.hdf5")
-modify_rewards_and_create_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr.hdf5")
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr.hdf5")
-shift_actions_with_clipping(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted.hdf5", k=3)
-inspect_right_arm(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted.hdf5")
-convert_actions_to_delta(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta.hdf5")
-plot_right_arm_delta_actions(file= "/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta.hdf5")
-normalize_gripper_in_file(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed.hdf5")
-plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed.hdf5")
-truncate_demos_at_k_dones(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", k=1)
-plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_json="delta_action_stats.json")
-normalize_delta_actions_from_json(input_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5", json_stats_path="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/delta_action_stats.json")
-plot_right_arm_delta_actions(file="/home/qtf5422/Desktop/AIRE/ibrl-docker/data/cube_picking_and_placing_ee/delta/dataset_1_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
+trim_first_n_steps(input_file=file_original, output_file="cut_first_steps_dataset.hdf5", n_steps=5)
+inspect_right_arm(file="cut_first_steps_dataset.hdf5")
+process_dataset(input_file="cut_first_steps_dataset.hdf5", output_file="dataset_tresholded.hdf5", threshold=0.01)
+inspect_right_arm(file="dataset_tresholded.hdf5")
+modify_rewards_and_create_dones(input_path="dataset_tresholded.hdf5", output_path="dataset_tresholded_wr.hdf5")
+inspect_right_arm(file="dataset_tresholded_wr.hdf5")
+
+shift_actions_with_clipping(input_path="dataset_tresholded_wr.hdf5", output_path="dataset_tresholded_wr_shifted.hdf5", k=3)
+inspect_right_arm(file="dataset_tresholded_wr_shifted.hdf5")
+
+convert_actions_to_delta(input_path="dataset_tresholded_wr_shifted.hdf5", output_path="dataset_tresholded_wr_shifted_delta.hdf5")
+plot_right_arm_delta_actions(file= "dataset_tresholded_wr_shifted_delta.hdf5")
+normalize_gripper_in_file(input_path="dataset_tresholded_wr_shifted_delta.hdf5", output_path="dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5")
+plot_right_arm_delta_actions(file="dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5")
+
+truncate_demos_at_k_dones(input_path="dataset_tresholded_wr_shifted_delta_gripper_normed.hdf5", output_path="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", k=1)
+plot_right_arm_delta_actions(file="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_json="delta_action_stats.json")
+
+normalize_delta_actions_from_json(input_path="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end.hdf5", output_path="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5", json_stats_path="delta_action_stats.json")
+plot_right_arm_delta_actions(file="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
+print_action_min_max_per_dimension("dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
+
+check_demos_with_reward_one(file_path="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
+
+inspect_right_arm("dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5")
+
+# # GET THE FIRST DEMO ONLY : 
+# extract_first_demo(input_path="dataset_tresholded_wr_shifted_delta_gripper_normed_cut_end_normalized.hdf5", output_path="dataset_final_demo_0.hdf5")
+# plot_right_arm_delta_actions(file="dataset_final_demo_0.hdf5")
+
+"""
+IN THE FOLLOWING CODE WE COMPUTE THE NORMALIZATION CONSTANTS FOR THE TELEOPERATION SETTINGS 
+(BEFORE ANY PROCESSING OF THE FILE). IN THAT WAY THE NORMALIZATION CONSTANTS ARE MORE ACCURATE
+FOR THE INFERENCE ON THE REAL ROBOT. 
+"""
+
+modify_rewards_and_create_dones(input_path="cut_first_steps_dataset.hdf5", output_path="raw_cut_first_steps_dataset.hdf5")
+convert_actions_to_delta(input_path="raw_cut_first_steps_dataset.hdf5", output_path="raw_cut_first_steps_dataset_delta.hdf5")
+normalize_gripper_in_file(input_path="raw_cut_first_steps_dataset_delta.hdf5", output_path="raw_cut_first_steps_dataset_delta_gripper_normed.hdf5")
+plot_right_arm_delta_actions(file="raw_cut_first_steps_dataset_delta_gripper_normed.hdf5", output_json="delta_action_stats_teleop.json")

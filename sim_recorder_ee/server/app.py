@@ -9,6 +9,7 @@ import numpy as np
 from pathlib import Path
 import threading
 import json
+import argparse
 from datetime import datetime
 
 # Import recorder components
@@ -18,15 +19,10 @@ from teleop_ingest import TeleopListener
 
 app = Flask(__name__, static_folder='../ui', static_url_path='')
 
-# Initialize components
-camera_manager = CameraManager(num_cameras=4)
-recorder = Recorder(camera_manager, base_path='data')
-teleop_listener = TeleopListener(port=5555)
-
-# Store in app config for access
-app.config['camera_manager'] = camera_manager
-app.config['recorder'] = recorder
-app.config['teleop_listener'] = teleop_listener
+# Initialised in main() after CLI args are parsed
+camera_manager = None
+recorder = None
+teleop_listener = None
 
 
 @app.route('/')
@@ -44,7 +40,7 @@ def serve_static(filename):
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Get current recording status"""
-    latest_state = recorder.get_latest_state() if hasattr(recorder, 'get_latest_state') else None
+    latest_state = recorder.get_latest_state()
     latest_state_serializable = None
     if latest_state is not None:
         latest_state_serializable = {
@@ -69,9 +65,9 @@ def start_recording():
     data = request.json or {}
     episode_name = data.get('episode_name', f"episode_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     fps = data.get('fps', 15)
-    
+
     success = recorder.start_recording(episode_name, fps=fps)
-    
+
     return jsonify({
         'success': success,
         'episode_name': episode_name
@@ -82,7 +78,7 @@ def start_recording():
 def stop_recording():
     """Stop current recording"""
     episode_path = recorder.stop_recording()
-    
+
     return jsonify({
         'success': episode_path is not None,
         'episode_path': str(episode_path) if episode_path else None
@@ -101,7 +97,7 @@ def delete_episode():
     """Delete an episode"""
     data = request.json
     episode_id = data.get('episode_id')
-    
+
     success = recorder.delete_episode(episode_id)
     return jsonify({'success': success})
 
@@ -110,31 +106,29 @@ def delete_episode():
 def receive_frame(cam_id):
     """Receive camera frame (raw numpy bytes or JPEG)"""
     content_type = request.headers.get('Content-Type', '')
-    
+
     if 'octet-stream' in content_type:
-        # Raw numpy bytes: reshape to (H, W, 3)
         img_bytes = request.data
         frame = np.frombuffer(img_bytes, dtype=np.uint8).reshape(128, 128, 3)
     else:
-        # JPEG bytes
         import io
         from PIL import Image
         img = Image.open(io.BytesIO(request.data))
         frame = np.array(img)
-    
+
     camera_manager.update_frame(cam_id, frame)
-    
+
     return jsonify({'success': True})
 
 
-@app.route('/api/teleop', methods=['POST']) # nothing is posted on this adress. 
+@app.route('/api/teleop', methods=['POST'])
 def receive_teleop():
     """Receive teleop action via HTTP (alternative to ZeroMQ)"""
     data = request.json
     action = np.array(data['action'])
-    
+
     teleop_listener.set_action(action)
-    
+
     return jsonify({'success': True})
 
 
@@ -142,21 +136,18 @@ def receive_teleop():
 def receive_state():
     """Receive robot state (qpos, qvel, action) from teleop client and store it for the recorder."""
     data = request.json or {}
-    # Expect arrays / lists in JSON
     try:
         qpos = np.array(data['qpos'])
         qvel = np.array(data['qvel'])
         action = np.array(data['action'])
         robot0_eef_pos = np.array(data['robot0_eef_pos'])
-        robot0_eef_quat= np.array(data['robot0_eef_quat'])
+        robot0_eef_quat = np.array(data['robot0_eef_quat'])
         robot0_gripper_qpos = np.array(data['robot0_gripper_qpos'])
         reward = np.float64(data["reward"])
     except Exception:
         return jsonify({'success': False, 'error': 'invalid payload'}), 400
 
-    # Push into recorder (recorder will keep latest_state and recorder thread will use it)
-    if hasattr(recorder, 'set_latest_state'):
-        recorder.set_latest_state(qpos, qvel, action, robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, reward)
+    recorder.set_latest_state(qpos, qvel, action, robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, reward)
 
     return jsonify({'success': True})
 
@@ -170,28 +161,44 @@ def stream_camera(cam_id):
             if frame is not None:
                 from PIL import Image
                 import io
-                
+
                 img = Image.fromarray(frame)
                 buf = io.BytesIO()
                 img.save(buf, format='JPEG')
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
-    
+
     from flask import Response
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 def main():
-    # Start teleop listener in background
+    global camera_manager, recorder, teleop_listener
+
+    parser = argparse.ArgumentParser(description='SERL Recording Server')
+    parser.add_argument(
+        '--dataset_path',
+        type=str,
+        default='data_multi_task/dataset.hdf5',
+        help='Path to the HDF5 dataset file (e.g. server/data/dataset.hdf5)',
+    )
+    args = parser.parse_args()
+
+    # Initialise components with parsed arguments
+    camera_manager = CameraManager(num_cameras=4)
+    recorder = Recorder(camera_manager, dataset_path=args.dataset_path)
+    teleop_listener = TeleopListener(port=5555)
+
     teleop_listener.start()
-    
-    print("="*60)
+
+    print("=" * 60)
     print("SERL Recording Server")
-    print("="*60)
-    print(f"Web UI: http://localhost:5000")
-    print(f"ZeroMQ: tcp://localhost:5555")
-    print("="*60)
-    
+    print("=" * 60)
+    print(f"Web UI:       http://localhost:5000")
+    print(f"ZeroMQ:       tcp://localhost:5555")
+    print(f"Dataset path: {args.dataset_path}")
+    print("=" * 60)
+
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 
 

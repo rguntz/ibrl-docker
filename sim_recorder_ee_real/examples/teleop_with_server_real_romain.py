@@ -555,7 +555,7 @@ def main():
                        help='Run without MuJoCo viewer (headless mode for web UI only)')
     parser.add_argument('--record-fps', type=float, default=15,
                        help='Recording frequency (FPS) for data collection')
-    parser.add_argument('--base-path', type=str, default="data/dataset.hdf5",
+    parser.add_argument('--base-path', type=str, default="sim_recorder_ee_real/server/data/dataset.hdf5",
                         help='base path to store the dataset')
     
     args = parser.parse_args()
